@@ -4,6 +4,8 @@ Flux Filters is a small web app for managing Miniflux feed-level block and allow
 
 It reads the existing plain-text rules from the Miniflux API, lets you inspect and edit them in a friendlier interface, and writes the exact newline-based text back to Miniflux. There is no database and no custom rules format.
 
+**Note:** This application was vibe coded using Codex to meet a personal need, which is, managing regex filters for Miniflux feeds in a simpler way than editing within the Miniflux UI.
+
 ## What It Does
 
 - Lists feeds and shows which ones already have rules
@@ -163,3 +165,7 @@ Important:
 - Do not log Miniflux API tokens
 - Restrict `MINIFLUX_ALLOWED_HOSTS` to the exact Miniflux host you trust
 - The server acts only as a thin proxy and does not persist user sessions
+
+## Contributions
+
+Contributions and suggestions are welcome, so if you have ideas for improving this utility then please let me know.
