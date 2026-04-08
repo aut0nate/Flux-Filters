@@ -151,6 +151,12 @@ Important:
 - The Nginx Proxy Manager container must also be connected to `edge-net`
 - The DNS record for your chosen hostname must point to your server
 
+## Screenshots
+
+![Login](./images/Flux-Filters-Login.png)
+
+![Home](./images/Flux-Filters-Home.png)
+
 ## Security Notes
 
 - Do not commit `.env` files or live credentials
