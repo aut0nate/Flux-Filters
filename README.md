@@ -4,7 +4,7 @@ Flux Filters is a small web app for managing Miniflux feed-level block and allow
 
 It reads the existing plain-text rules from the Miniflux API, lets you inspect and edit them in a friendlier interface, and writes the exact newline-based text back to Miniflux. There is no database and no custom rules format.
 
-## What it does
+## What It Does
 
 - Lists feeds and shows which ones already have rules
 - Lets you edit block rules and allow rules per feed
@@ -22,7 +22,7 @@ It reads the existing plain-text rules from the Miniflux API, lets you inspect a
 - Docker
 - Vitest
 
-## Local development
+## Local Development
 
 1. Install dependencies:
 
@@ -44,7 +44,7 @@ http://localhost:5173
 
 The Vite development server proxies `/api` requests to the Express server on port `3000`.
 
-## Build and test
+## Build and Test
 
 Build the production assets:
 
@@ -58,7 +58,7 @@ Run the test suite:
 npm run test
 ```
 
-## Environment variables
+## Environment Variables
 
 Copy the example file before running in Docker or production:
 
@@ -69,15 +69,15 @@ cp .env.example .env
 Available variables:
 
 - `PORT`: Express server port inside the container. Default `3000`.
-- `MINIFLUX_ALLOWED_HOSTS`: Comma-separated allow-list for Miniflux hosts. In production this should be set to your Miniflux hostname, for example `rss.autonate.dev`.
+- `MINIFLUX_ALLOWED_HOSTS`: Comma-separated allow-list for Miniflux hosts. In production this should be set to your Miniflux hostname.
 
-## Docker deployment on a VPS
+## Docker Deployment
 
 The included Compose file is set up for a reverse-proxy-based deployment on an existing external Docker network called `edge-net`.
 
 ### 1. Prepare the server
 
-Clone the repository onto the VPS and create the environment file:
+Clone the repository onto the server and create the environment file:
 
 ```bash
 cp .env.example .env
@@ -87,7 +87,7 @@ Edit `.env` and confirm the values:
 
 ```dotenv
 PORT=3000
-MINIFLUX_ALLOWED_HOSTS=rss.autonate.dev
+MINIFLUX_ALLOWED_HOSTS=<HOST>
 ```
 
 Make sure the external Docker network already exists:
@@ -126,11 +126,11 @@ docker compose up -d --build
 
 That means Nginx Proxy Manager should connect to the container by its Docker service name on the shared network.
 
-## Nginx Proxy Manager configuration
+## Nginx Proxy Manager Configuration
 
 Create a new Proxy Host in Nginx Proxy Manager with these values:
 
-- `Domain Names`: your public hostname, for example `flux-filters.autonate.dev`
+- `Domain Names`: your public hostname
 - `Scheme`: `http`
 - `Forward Hostname / IP`: `flux-filters`
 - `Forward Port`: `3000`
@@ -149,32 +149,9 @@ Leave the Advanced tab empty unless you already have a specific Nginx rule you w
 Important:
 
 - The Nginx Proxy Manager container must also be connected to `edge-net`
-- The DNS record for your chosen hostname must point to your VPS
+- The DNS record for your chosen hostname must point to your server
 
-## GitHub publishing
-
-If this repository does not already have the remote configured, add it:
-
-```bash
-git remote add origin git@github.com:aut0nate/Miniflux-Filter-Manager.git
-```
-
-Then commit and push:
-
-```bash
-git add .
-git commit -m "Initial commit"
-git branch -M main
-git push -u origin main
-```
-
-If the remote already exists, update it instead:
-
-```bash
-git remote set-url origin git@github.com:aut0nate/Miniflux-Filter-Manager.git
-```
-
-## Security notes
+## Security Notes
 
 - Do not commit `.env` files or live credentials
 - Do not log Miniflux API tokens
