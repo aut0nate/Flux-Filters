@@ -1,22 +1,10 @@
 # Flux Filters
 
-Flux Filters is a small web app for managing Miniflux feed-level block and allow rules without changing how Miniflux stores them.
+Flux Filters is a simple personal web app for managing Miniflux feed-level block and allow rules without changing how Miniflux stores them.
 
-It reads the existing plain-text rules from the Miniflux API, lets you inspect and edit them in a friendlier interface, and writes the exact newline-based text back to Miniflux. There is no database and no custom rules format.
-
-**Note:** This application was vibe coded using Codex to meet a personal need, which is, managing regex filters for Miniflux feeds in a simpler way than editing within the Miniflux UI.
-
-![Login](./images/Flux-Filters-Login.png)
+It was built to make managing regex filters for Miniflux feeds easier, while keeping the saved rule text fully compatible with Miniflux.
 
 ![Home](./images/Flux-Filters-Home.png)
-
-## What It Does
-
-- Lists feeds and shows which ones already have rules
-- Lets you edit block rules and allow rules per feed
-- Preserves rule order, which matters because Miniflux stops on the first match
-- Keeps the saved format compatible with Miniflux
-- Stores the Miniflux API token in browser session storage only
 
 ## Stack
 
@@ -28,142 +16,86 @@ It reads the existing plain-text rules from the Miniflux API, lets you inspect a
 - Docker
 - Vitest
 
-## Local Development
+## Configuration
+
+1. Create a `.env` file:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Update `.env`:
+
+   - `PORT`
+   - `MINIFLUX_ALLOWED_HOSTS`
+
+Environment notes:
+
+- `PORT` defaults to `3000` for the Express server.
+- `MINIFLUX_ALLOWED_HOSTS` should be set to the exact Miniflux host you trust.
+- The browser stores the Miniflux API token in session storage only.
+- The app reads and writes Miniflux rules as plain text, one rule per line, without introducing a custom format.
+
+## Run Locally
 
 1. Install dependencies:
 
-```bash
-npm install
-```
+   ```bash
+   npm install
+   ```
 
-2. Start the development servers:
+2. Start the app:
 
-```bash
-npm run dev
-```
+   ```bash
+   npm run dev
+   ```
 
-3. Open the app:
+3. Open [http://localhost:5173](http://localhost:5173).
 
-```text
-http://localhost:5173
-```
+Notes:
 
-The Vite development server proxies `/api` requests to the Express server on port `3000`.
+- The Vite development server runs on port `5173`.
+- `/api` requests are proxied to the Express server on port `3000`.
 
-## Build and Test
+## Run with Docker
 
-Build the production assets:
+1. Create a `.env` file if you have not already:
 
-```bash
-npm run build
-```
+   ```bash
+   cp .env.example .env
+   ```
 
-Run the test suite:
+2. Create the external Docker network if needed:
 
-```bash
-npm run test
-```
+   ```bash
+   docker network create edge-net
+   ```
 
-## Environment Variables
+3. Build and start the container:
 
-Copy the example file before running in Docker or production:
+   ```bash
+   docker compose up --build
+   ```
 
-```bash
-cp .env.example .env
-```
+Notes:
 
-Available variables:
-
-- `PORT`: Express server port inside the container. Default `3000`.
-- `MINIFLUX_ALLOWED_HOSTS`: Comma-separated allow-list for Miniflux hosts. In production this should be set to your Miniflux hostname.
-
-## Docker Deployment
-
-The included Compose file is set up for a reverse-proxy-based deployment on an existing external Docker network called `edge-net`.
-
-### 1. Prepare the server
-
-Clone the repository onto the server and create the environment file:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and confirm the values:
-
-```dotenv
-PORT=3000
-MINIFLUX_ALLOWED_HOSTS=<HOST>
-```
-
-Make sure the external Docker network already exists:
-
-```bash
-docker network ls
-```
-
-If `edge-net` does not exist yet:
-
-```bash
-docker network create edge-net
-```
-
-### 2. Start the app
-
-```bash
-docker compose up --build -d
-```
-
-Useful commands:
-
-```bash
-docker compose ps
-docker compose logs -f
-docker compose pull
-docker compose up -d --build
-```
-
-### 3. How the container is exposed
-
-- The service is attached to the external `edge-net` network
-- It exposes port `3000` to other containers on that network
-- It does not publish a host port directly
-- It runs with a read-only root filesystem and `no-new-privileges`
-
-That means Nginx Proxy Manager should connect to the container by its Docker service name on the shared network.
-
-## Nginx Proxy Manager Configuration
-
-Create a new Proxy Host in Nginx Proxy Manager with these values:
-
-- `Domain Names`: your public hostname
-- `Scheme`: `http`
-- `Forward Hostname / IP`: `flux-filters`
-- `Forward Port`: `3000`
-- `Block Common Exploits`: enabled
-- `Websockets Support`: enabled
-- `Cache Assets`: optional, usually leave disabled at first
-
-On the SSL tab:
-
-- Request a new SSL certificate
-- Enable `Force SSL`
-- Enable `HTTP/2 Support`
-
-Leave the Advanced tab empty unless you already have a specific Nginx rule you want to add.
-
-Important:
-
-- The Nginx Proxy Manager container must also be connected to `edge-net`
-- The DNS record for your chosen hostname must point to your server
+- The Compose file expects an existing external Docker network called `edge-net`.
+- The container exposes port `3000` to that Docker network and does not publish a host port directly.
+- If you want to access it through a domain or reverse proxy, point that proxy at the `flux-filters` service on port `3000`.
 
 ## Security Notes
 
-- Do not commit `.env` files or live credentials
-- Do not log Miniflux API tokens
-- Restrict `MINIFLUX_ALLOWED_HOSTS` to the exact Miniflux host you trust
-- The server acts only as a thin proxy and does not persist user sessions
+- Do not commit `.env` files or live credentials.
+- Do not log Miniflux API tokens.
+- Restrict `MINIFLUX_ALLOWED_HOSTS` to the Miniflux host you trust.
+- The server acts only as a thin proxy and does not persist user sessions.
+
+## AI-Assisted Development
+
+Flux Filters was built with **OpenAI Codex using GPT-5.4**. This repository includes an [`AGENTS.md`](./AGENTS.md) file, which provides structured instructions and context for AI coding agents. It defines expectations, constraints, and project-specific guidance to help keep contributions consistent and reliable.
 
 ## Contributions
 
-Contributions and suggestions are welcome, so if you have ideas for improving this utility then please let me know.
+Contributions, ideas, and suggestions are welcome.
+
+I am not a developer by trade, so if you have improvements, feature ideas, or bug fixes, feel free to open an issue or submit a pull request.
