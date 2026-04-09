@@ -6,6 +6,10 @@ It reads the existing plain-text rules from the Miniflux API, lets you inspect a
 
 **Note:** This application was vibe coded using Codex to meet a personal need, which is, managing regex filters for Miniflux feeds in a simpler way than editing within the Miniflux UI.
 
+![Login](./images/Flux-Filters-Login.png)
+
+![Home](./images/Flux-Filters-Home.png)
+
 ## What It Does
 
 - Lists feeds and shows which ones already have rules
@@ -152,12 +156,6 @@ Important:
 
 - The Nginx Proxy Manager container must also be connected to `edge-net`
 - The DNS record for your chosen hostname must point to your server
-
-## Screenshots
-
-![Login](./images/Flux-Filters-Login.png)
-
-![Home](./images/Flux-Filters-Home.png)
 
 ## Security Notes
 
