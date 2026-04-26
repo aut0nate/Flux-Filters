@@ -1,15 +1,14 @@
 services:
   flux-filters:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: flux-filters:local
+    image: ${DOCKERHUB_USERNAME}/flux-filters:latest
     container_name: flux-filters
     restart: unless-stopped
     env_file:
       - .env
-    ports:
-      - "3000:3000"
+    networks:
+      - edge-net
+    expose:
+      - "3000"
     read_only: true
     tmpfs:
       - /tmp
@@ -19,3 +18,7 @@ services:
       options:
         max-size: 10m
         max-file: "3"
+
+networks:
+  edge-net:
+    external: true

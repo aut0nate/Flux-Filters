@@ -20,6 +20,7 @@ This repository is intentionally focused on one job only: making Miniflux feed r
 - Node.js 20+
 - Docker
 - Vitest
+- ESLint
 
 ## Architecture
 
@@ -34,10 +35,12 @@ The browser holds the Miniflux API token in session storage only. The Express se
 
 - Install dependencies: `npm install`
 - Run locally: `npm run dev`
+- Lint code: `npm run lint`
 - Build production assets: `npm run build`
 - Start production server: `npm run start`
 - Run tests: `npm run test`
-- Run with Docker: `docker compose up --build -d`
+- Run local Docker build: `docker compose up --build`
+- Run production Compose shape: use `docker-compose.prod.yml` on the VPS as `docker-compose.yml`
 
 ## Code style guidelines
 
@@ -51,7 +54,8 @@ The browser holds the Miniflux API token in session storage only. The Express se
 
 - Add unit tests for parsing and compiling rules.
 - When changing API behaviour, verify the request payload still matches Miniflux expectations.
-- Before shipping UI changes, run `npm run build` and `npm run test`.
+- Before shipping changes, run `npm run lint`, `npm run test`, and `npm run build`.
+- For Docker changes, run `docker compose up --build` locally and verify `http://127.0.0.1:3000/api/health`.
 
 ## Security considerations
 
@@ -66,6 +70,11 @@ The browser holds the Miniflux API token in session storage only. The Express se
 - The app is designed to sit behind a reverse proxy such as Nginx or Caddy.
 - The public site for this project is expected to be `https://flux-filters.autonate.dev`.
 - The Miniflux hostname should be explicitly allow-listed in `MINIFLUX_ALLOWED_HOSTS`.
+- GitHub Actions publishes Docker Hub images from `main` as `aut0nate/flux-filters:latest` and `aut0nate/flux-filters:<full-git-sha>`.
+- Required GitHub secrets are `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`.
+- The local `docker-compose.yml` builds from source and publishes port `3000`.
+- The production `docker-compose.prod.yml` uses the published image and the external `edge-net` Docker network.
+- The production server should keep only `docker-compose.yml` and `.env`; do not build from source on the VPS once image deployment is working.
 
 ## Project constraints and rules
 
