@@ -1,4 +1,4 @@
-import { startTransition, useDeferredValue, useEffect, useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 
 import { fetchFeed, fetchFeeds, saveFeedRules, testConnection, type ClientSession } from "./api";
 import FeedSidebar from "./components/FeedSidebar";
@@ -67,10 +67,22 @@ function readSavedTheme(): ThemeMode {
 }
 
 function createDraftState(feed: MinifluxFeed | null): DraftState {
+  return createDraftStateFromRuleText(
+    feed?.id ?? null,
+    getFeedBlockRules(feed || {}),
+    getFeedAllowRules(feed || {})
+  );
+}
+
+function createDraftStateFromRuleText(
+  feedId: number | null,
+  blockRules: string,
+  allowRules: string
+): DraftState {
   return {
-    feedId: feed?.id ?? null,
-    blockRules: parseRuleText(getFeedBlockRules(feed || {})),
-    allowRules: parseRuleText(getFeedAllowRules(feed || {}))
+    feedId,
+    blockRules: parseRuleText(blockRules),
+    allowRules: parseRuleText(allowRules)
   };
 }
 
@@ -149,18 +161,24 @@ export default function App() {
   }, [session]);
 
   const selectedFeed = feeds.find((feed) => feed.id === selectedFeedId) ?? null;
+  const selectedFeedIdForDraft = selectedFeed?.id ?? null;
+  const selectedFeedBlockRules = selectedFeed ? getFeedBlockRules(selectedFeed) : "";
+  const selectedFeedAllowRules = selectedFeed ? getFeedAllowRules(selectedFeed) : "";
+  const selectedFeedDraftState = useMemo(
+    () =>
+      createDraftStateFromRuleText(
+        selectedFeedIdForDraft,
+        selectedFeedBlockRules,
+        selectedFeedAllowRules
+      ),
+    [selectedFeedIdForDraft, selectedFeedBlockRules, selectedFeedAllowRules]
+  );
 
   useEffect(() => {
-    setDraftState(createDraftState(selectedFeed));
+    setDraftState(selectedFeedDraftState);
     setSaveError("");
     setSaveMessage("");
-  }, [
-    selectedFeed?.id,
-    selectedFeed?.block_filter_entry_rules,
-    selectedFeed?.keep_filter_entry_rules,
-    selectedFeed?.blocklist_rules,
-    selectedFeed?.keeplist_rules
-  ]);
+  }, [selectedFeedDraftState]);
 
   useEffect(() => {
     if (!session || !selectedFeedId) {
