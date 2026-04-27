@@ -133,7 +133,7 @@ Test, build, and publish
 
 ## Production Deployment
 
-The VPS should pull the published image instead of building from source. Keep only these files on the server:
+The production server should pull the published image instead of building from source. Keep only these files on the server:
 
 ```text
 docker-compose.yml
@@ -148,7 +148,7 @@ The production Compose file expects an existing external Docker network called `
 docker network create edge-net
 ```
 
-Deploy or update the app on the VPS:
+Deploy or update the app on the production server:
 
 ```bash
 docker compose pull
