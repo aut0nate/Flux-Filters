@@ -29,7 +29,7 @@ It was built to make managing regex filters for Miniflux feeds easier, while kee
 
    - `PORT`
    - `MINIFLUX_ALLOWED_HOSTS`
-   - `DOCKERHUB_USERNAME=aut0nate` for production Compose deployments
+   - `DOCKERHUB_USERNAME` for production Compose deployments
 
 Environment notes:
 
