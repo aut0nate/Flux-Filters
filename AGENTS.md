@@ -40,7 +40,7 @@ The browser holds the Miniflux API token in session storage only. The Express se
 - Start production server: `npm run start`
 - Run tests: `npm run test`
 - Run local Docker build: `docker compose up --build`
-- Run production Compose shape: use `docker-compose.prod.yml` on the VPS as `docker-compose.yml`
+- Run production Compose shape: use `docker-compose.prod.yml` on the production server as `docker-compose.yml`
 
 ## Code style guidelines
 
@@ -66,7 +66,7 @@ The browser holds the Miniflux API token in session storage only. The Express se
 
 ## Deployment notes
 
-- The intended deployment target is a VPS using Docker.
+- The intended deployment target is a production server using Docker.
 - The app is designed to sit behind a reverse proxy such as Nginx or Caddy.
 - The public site for this project is expected to be `https://flux-filters.autonate.dev`.
 - The Miniflux hostname should be explicitly allow-listed in `MINIFLUX_ALLOWED_HOSTS`.
@@ -74,7 +74,7 @@ The browser holds the Miniflux API token in session storage only. The Express se
 - Required GitHub secrets are `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`.
 - The local `docker-compose.yml` builds from source and publishes port `3000`.
 - The production `docker-compose.prod.yml` uses the published image and the external `edge-net` Docker network.
-- The production server should keep only `docker-compose.yml` and `.env`; do not build from source on the VPS once image deployment is working.
+- The production server should keep only `docker-compose.yml` and `.env`; do not build from source there once image deployment is working.
 
 ## Project constraints and rules
 
