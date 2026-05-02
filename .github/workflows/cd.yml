@@ -74,7 +74,12 @@ jobs:
           scp -i ~/.ssh/deploy_key \
             -P "${{ secrets.VPS_PORT }}" \
             docker-compose.prod.yaml \
-            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${DEPLOY_PATH}/docker-compose.yaml"
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/flux-filters-docker-compose.yaml"
+
+          ssh -i ~/.ssh/deploy_key \
+            -p "${{ secrets.VPS_PORT }}" \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "sudo install -o nathan -g deploy -m 644 /tmp/flux-filters-docker-compose.yaml '${DEPLOY_PATH}/docker-compose.yaml' && rm -f /tmp/flux-filters-docker-compose.yaml"
 
       - name: Deploy container
         run: |
