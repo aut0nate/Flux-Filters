@@ -70,10 +70,10 @@ The browser holds the Miniflux API token in session storage only. The Express se
 - The app is designed to sit behind a reverse proxy such as Nginx or Caddy.
 - The public site for this project is expected to be `https://flux-filters.autonate.dev`.
 - The Miniflux hostname should be explicitly allow-listed in `MINIFLUX_ALLOWED_HOSTS`.
-- CI lives in `.github/workflows/ci.yml` and runs linting, tests, the production build, Docker build, and a `/api/health` smoke test.
-- CD lives in `.github/workflows/cd.yml`, runs only after CI succeeds on `main`, publishes `ghcr.io/aut0nate/flux-filters:latest` and `ghcr.io/aut0nate/flux-filters:<full-git-sha>`, then deploys to the VPS over SSH.
+- CI lives in `.github/workflows/ci.yaml` and runs linting, tests, the production build, Docker build, and a `/api/health` smoke test.
+- CD lives in `.github/workflows/cd.yaml`, runs only after CI succeeds on `main`, publishes `ghcr.io/aut0nate/flux-filters:latest` and `ghcr.io/aut0nate/flux-filters:<full-git-sha>`, then deploys to the VPS over SSH.
 - Required GitHub Actions secrets for deployment are `VPS_HOST`, `VPS_PORT`, `VPS_SSH_KEY`, and `VPS_USER`.
-- The local `docker-compose.yml` builds from source and publishes port `3000`.
+- The local `docker-compose.yaml` builds from source and publishes port `3000`.
 - The production `docker-compose.prod.yaml` uses the GHCR image, `${IMAGE_TAG:-latest}`, and the external `edge-net` Docker network.
 - The VPS should keep only `/opt/stacks/flux-filters/docker-compose.yaml` and `/opt/stacks/flux-filters/.env`; do not build from source there once image deployment is working.
 - Runtime secrets belong in the VPS `.env` file, not in GitHub workflow files or the Docker image.
