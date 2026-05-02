@@ -1,23 +1,40 @@
 # Flux Filters
 
-Flux Filters is a simple personal web app for managing Miniflux feed-level block and allow rules without changing how Miniflux stores them.
+## Introduction
 
-It was built to make managing regex filters for Miniflux feeds easier, while keeping the saved rule text fully compatible with Miniflux.
+Flux Filters is a personal web app for managing Miniflux feed-level block and allow rules in a simpler way.
 
-![Home](./images/Flux-Filters-Home.png)
+It is for Miniflux users who want an easier way to manage regex filters without editing long blocks of raw rule text directly in the Miniflux interface. The app reads the current rule text from Miniflux, lets you inspect and edit it in a clearer interface, and writes the updated plain-text rules back in the same format Miniflux already expects.
+
+![Screenshot or Preview](./images/Flux-Filters-Home.png)
+
+## Features
+
+- View feeds and see which ones already have rules
+- Create block and allow rules using regex
+- Preserve rule order, which matters because Miniflux stops on the first match
+- Keep saved rule text compatible with Miniflux without a custom conversion layer
+- Update Miniflux feed rules without needing a separate database or custom format
 
 ## Stack
 
+- Node.js 20+
 - React 18
 - TypeScript
 - Vite
 - Express
-- Node.js 20+
-- Docker
 - Vitest
-- ESLint
+- Docker
 
-## Configuration
+## Requirements
+
+Before running this project, install:
+
+- Node.js 20 or newer
+- npm
+- Docker and Docker Compose, if you want to run the app with Docker
+
+## Configuration (.env)
 
 1. Create a `.env` file:
 
@@ -25,21 +42,24 @@ It was built to make managing regex filters for Miniflux feeds easier, while kee
    cp .env.example .env
    ```
 
-2. Update `.env`:
+2. Update `.env` with the required values:
 
    - `PORT`
    - `MINIFLUX_ALLOWED_HOSTS`
-   - `IMAGE_TAG` for production Compose deployments, usually managed by CD
+
+Example `.env`:
+
+```bash
+PORT=3000
+MINIFLUX_ALLOWED_HOSTS=miniflux.example.com
+```
 
 Environment notes:
 
-- `PORT` defaults to `3000` for the Express server.
-- `MINIFLUX_ALLOWED_HOSTS` should be set to the exact Miniflux host you trust.
-- `IMAGE_TAG` selects the GHCR image tag used by production Compose. The CD workflow updates it to the deployed commit SHA.
-- The browser stores the Miniflux API token in session storage only.
-- The app reads and writes Miniflux rules as plain text, one rule per line, without introducing a custom format.
+- `PORT` - controls which port the Express server uses. The default is `3000`.
+- `MINIFLUX_ALLOWED_HOSTS` - limits which Miniflux hostnames the proxy will talk to.
 
-## Run Locally
+## Test Locally
 
 1. Install dependencies:
 
@@ -47,158 +67,83 @@ Environment notes:
    npm install
    ```
 
-2. Start the app:
-
-   ```bash
-   npm run dev
-   ```
-
-3. Open [http://localhost:5173](http://localhost:5173).
-
-Notes:
-
-- The Vite development server runs on port `5173`.
-- `/api` requests are proxied to the Express server on port `3000`.
-
-Before opening a pull request, run:
-
-```bash
-npm run lint
-npm run test
-npm run build
-```
-
-## Run with Docker
-
-1. Create a `.env` file if you have not already:
+2. Prepare the application:
 
    ```bash
    cp .env.example .env
    ```
 
-2. Build and start the local container:
+3. Start the project:
+
+   ```bash
+   npm run dev
+   ```
+
+4. Open [http://localhost:5173](http://localhost:5173).
+
+## Test Locally Using Docker
+
+Use Docker locally when you want to test the application before deploying to your server. Start by building the image:
+
+1. Build and start the local container:
 
    ```bash
    docker compose up --build
    ```
 
-3. Open [http://localhost:3000](http://localhost:3000).
+2. Open [http://localhost:3000](http://localhost:3000).
 
 Notes:
 
-- The local Compose file builds from source and publishes port `3000`.
-- Flux Filters does not need a local storage volume because it does not persist app data.
+- The local `docker-compose.yaml` file publishes port `3000` to `localhost`.
+- There are no mounted data folders because the app does not store application data locally.
+- The container runs with a read-only root filesystem and `no-new-privileges`.
+- No first-run database or migration step is required.
 
-## CI/CD Deployment
+## Server Deployment
 
-Flux Filters uses separate GitHub Actions workflows for CI and CD.
+You can run this on your own server by pulling the latest Docker image from `ghcr.io/aut0nate/flux-filters:${IMAGE_TAG:-latest}`.
 
-CI runs on pull requests and pushes to `main`:
+Use the structure that fits your own environment and preferred deployment methods.
+For public-facing access, put the service behind HTTPS using a reverse proxy such as Nginx Proxy Manager, Caddy, Traefik, or any other preferred method.
 
-```bash
-npm ci
-npm run lint
-npm run test
-npm run build
-docker build
-```
+For most Docker-based deployments:
 
-The CI workflow also starts the built Docker image and checks `/api/health`.
+1. Create a directory in your chosen location on your server, for example `/opt/stacks/flux-filters`.
+2. Change into this directory.
+3. Ensure the `docker-compose.prod.yaml` file is saved in this directory.
+4. Create a `.env` file:
 
-CD runs only after CI succeeds on `main`. It builds and publishes GHCR images, then deploys the matching commit image to the VPS:
+   ```bash
+   PORT=3000
+   MINIFLUX_ALLOWED_HOSTS=<your-miniflux-host>
+   IMAGE_TAG=latest
+   ```
 
-- `ghcr.io/aut0nate/flux-filters:latest`
-- `ghcr.io/aut0nate/flux-filters:<full-git-sha>`
+5. Create the external Docker network or use an existing one. If you use an existing network, update the `docker-compose.prod.yaml` file accordingly.
 
-Required GitHub repository secrets for deployment:
+   ```bash
+   docker network create edge-net
+   ```
 
-- `VPS_HOST`
-- `VPS_PORT`
-- `VPS_SSH_KEY`
-- `VPS_USER`
+6. Start the public image:
 
-`VPS_SSH_KEY` should be a dedicated deployment private key, not a personal SSH key. The matching public key must be in the VPS deployment user's `~/.ssh/authorized_keys` file.
+   ```bash
+   docker compose -f docker-compose.prod.yaml up -d
+   ```
 
-The GHCR package should be public unless you also configure Docker login on the VPS, because the production Compose file pulls the image directly from GHCR.
+7. Verify the public URL after deployment.
 
-Recommended GitHub settings for `main`:
+Example production files:
 
-- Require a pull request before merging.
-- Require status checks to pass.
-- Require branches to be up to date before merging.
-- Block force pushes.
-- Restrict deletions.
-- Use squash merging.
-- Automatically delete merged head branches.
+- `docker-compose.prod.yaml`
+- `.env`
 
-Required check:
+After deployment, verify:
 
-```text
-Lint, test and build Docker image
-```
-
-## VPS Deployment
-
-The VPS should pull the published GHCR image instead of building from source. The deployment workflow copies `docker-compose.prod.yaml` to this server path:
-
-```text
-/opt/stacks/flux-filters/docker-compose.yaml
-```
-
-After image-based deployment is working, keep only these files on the VPS:
-
-```text
-/opt/stacks/flux-filters/docker-compose.yaml
-/opt/stacks/flux-filters/.env
-```
-
-The VPS `.env` file should contain runtime configuration:
-
-```bash
-PORT=3000
-MINIFLUX_ALLOWED_HOSTS=rss.autonate.dev
-IMAGE_TAG=latest
-```
-
-The CD workflow updates `IMAGE_TAG` to the deployed commit SHA during each deployment.
-
-The production Compose file expects an existing external Docker network called `edge-net`, so create it once if needed:
-
-```bash
-docker network create edge-net
-```
-
-Prepare the deployment directory once before the first deployment:
-
-```bash
-sudo mkdir -p /opt/stacks/flux-filters
-sudo chown <vps-user>:<vps-user> /opt/stacks/flux-filters
-chmod 755 /opt/stacks/flux-filters
-```
-
-If the deployment user cannot run Docker commands, add it to the Docker group:
-
-```bash
-sudo usermod -aG docker <vps-user>
-```
-
-The production container exposes port `3000` only to `edge-net`. Point the reverse proxy at the `flux-filters` service on port `3000`.
-
-Manual rollback can be done by setting `IMAGE_TAG` in `/opt/stacks/flux-filters/.env` to a previous commit SHA and running:
-
-```bash
-cd /opt/stacks/flux-filters
-docker compose pull
-docker compose up -d
-```
-
-## Security Notes
-
-- Do not commit `.env` files or live credentials.
-- Do not log Miniflux API tokens.
-- Restrict `MINIFLUX_ALLOWED_HOSTS` to the Miniflux host you trust.
-- The server acts only as a thin proxy and does not persist user sessions.
-- Do not store source code on the production server once image-based deployment is working.
+- The public homepage loads.
+- The app can reach the expected Miniflux host.
+- Existing rules can still be fetched and saved.
 
 ## AI-Assisted Development
 
@@ -208,4 +153,8 @@ Flux Filters was built with **OpenAI Codex using GPT-5.4**. This repository incl
 
 Contributions, ideas, and suggestions are welcome.
 
-I am not a developer by trade, so if you have improvements, feature ideas, or bug fixes, feel free to open an issue or submit a pull request.
+If you have improvements, feature ideas, or bug fixes, feel free to open an issue or submit a pull request. All contributions are appreciated and help improve the project.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE.md](./LICENSE.md) for details.
