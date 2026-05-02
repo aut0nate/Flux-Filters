@@ -67,7 +67,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key \
             -p "${{ secrets.VPS_PORT }}" \
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
-            "mkdir -p '${DEPLOY_PATH}' && chmod 755 '${DEPLOY_PATH}'"
+            "mkdir -p '${DEPLOY_PATH}' && test -w '${DEPLOY_PATH}'"
 
       - name: Upload production Compose file
         run: |
