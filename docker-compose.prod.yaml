@@ -1,6 +1,6 @@
 services:
   flux-filters:
-    image: ${DOCKERHUB_USERNAME}/flux-filters:latest
+    image: ghcr.io/aut0nate/flux-filters:${IMAGE_TAG:-latest}
     container_name: flux-filters
     restart: unless-stopped
     env_file:

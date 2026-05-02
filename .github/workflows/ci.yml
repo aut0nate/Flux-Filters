@@ -1,21 +1,22 @@
-name: Test, build, and publish
+name: CI - Validate and build
 
 on:
   pull_request:
   push:
     branches:
-      - "**"
+      - main
 
 permissions:
   contents: read
 
 env:
-  IMAGE_NAME: flux-filters
+  CI_IMAGE_TAG: flux-filters:ci
 
 jobs:
-  test-build-and-publish:
-    name: Test, build, and publish
+  lint-test-build:
+    name: Lint, test and build Docker image
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
@@ -30,31 +31,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint
+      - name: Run linting
         run: npm run lint
 
       - name: Run tests
         run: npm run test
 
-      - name: Build app
+      - name: Build application
         run: npm run build
 
       - name: Build Docker image
-        run: docker build --tag "$IMAGE_NAME:${GITHUB_SHA}" .
+        run: docker build --tag "$CI_IMAGE_TAG" .
 
       - name: Smoke test Docker image
         run: |
+          set -euo pipefail
+
           docker run --detach --name flux-filters-smoke \
             --publish 3000:3000 \
             --env PORT=3000 \
             --env MINIFLUX_ALLOWED_HOSTS=example.com \
-            "$IMAGE_NAME:${GITHUB_SHA}"
+            "$CI_IMAGE_TAG"
 
-          for attempt in {1..20}; do
+          for attempt in {1..30}; do
             if curl --fail --silent --show-error http://127.0.0.1:3000/api/health; then
+              docker logs flux-filters-smoke
               exit 0
             fi
-            sleep 1
+            sleep 2
           done
 
           docker logs flux-filters-smoke
@@ -63,18 +67,3 @@ jobs:
       - name: Clean up smoke test container
         if: always()
         run: docker rm --force flux-filters-smoke || true
-
-      - name: Log in to Docker Hub
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Push Docker image
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          docker tag "$IMAGE_NAME:${GITHUB_SHA}" "${{ secrets.DOCKERHUB_USERNAME }}/flux-filters:${GITHUB_SHA}"
-          docker tag "$IMAGE_NAME:${GITHUB_SHA}" "${{ secrets.DOCKERHUB_USERNAME }}/flux-filters:latest"
-          docker push "${{ secrets.DOCKERHUB_USERNAME }}/flux-filters:${GITHUB_SHA}"
-          docker push "${{ secrets.DOCKERHUB_USERNAME }}/flux-filters:latest"
