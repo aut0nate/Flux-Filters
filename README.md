@@ -29,13 +29,13 @@ It was built to make managing regex filters for Miniflux feeds easier, while kee
 
    - `PORT`
    - `MINIFLUX_ALLOWED_HOSTS`
-   - `DOCKERHUB_USERNAME` for production Compose deployments
+   - `IMAGE_TAG` for production Compose deployments, usually managed by CD
 
 Environment notes:
 
 - `PORT` defaults to `3000` for the Express server.
 - `MINIFLUX_ALLOWED_HOSTS` should be set to the exact Miniflux host you trust.
-- `DOCKERHUB_USERNAME` is only used by `docker-compose.prod.yml` to choose the published Docker image, currently `aut0nate/flux-filters`.
+- `IMAGE_TAG` selects the GHCR image tag used by production Compose. The CD workflow updates it to the deployed commit SHA.
 - The browser stores the Miniflux API token in session storage only.
 - The app reads and writes Miniflux rules as plain text, one rule per line, without introducing a custom format.
 
@@ -91,7 +91,9 @@ Notes:
 
 ## CI/CD Deployment
 
-GitHub Actions runs the full check on pull requests and branch pushes:
+Flux Filters uses separate GitHub Actions workflows for CI and CD.
+
+CI runs on pull requests and pushes to `main`:
 
 ```bash
 npm ci
@@ -101,19 +103,23 @@ npm run build
 docker build
 ```
 
-The workflow also starts the built Docker image and checks `/api/health`.
+The CI workflow also starts the built Docker image and checks `/api/health`.
 
-When changes are pushed to `main`, GitHub Actions publishes Docker Hub images:
+CD runs only after CI succeeds on `main`. It builds and publishes GHCR images, then deploys the matching commit image to the VPS:
 
-- `aut0nate/flux-filters:latest`
-- `aut0nate/flux-filters:<full-git-sha>`
+- `ghcr.io/aut0nate/flux-filters:latest`
+- `ghcr.io/aut0nate/flux-filters:<full-git-sha>`
 
-Required GitHub repository secrets:
+Required GitHub repository secrets for deployment:
 
-- `DOCKERHUB_USERNAME`
-- `DOCKERHUB_TOKEN`
+- `VPS_HOST`
+- `VPS_PORT`
+- `VPS_SSH_KEY`
+- `VPS_USER`
 
-Use a Docker Hub access token for `DOCKERHUB_TOKEN`, not your Docker Hub password.
+`VPS_SSH_KEY` should be a dedicated deployment private key, not a personal SSH key. The matching public key must be in the VPS deployment user's `~/.ssh/authorized_keys` file.
+
+The GHCR package should be public unless you also configure Docker login on the VPS, because the production Compose file pulls the image directly from GHCR.
 
 Recommended GitHub settings for `main`:
 
@@ -128,19 +134,33 @@ Recommended GitHub settings for `main`:
 Required check:
 
 ```text
-Test, build, and publish
+Lint, test and build Docker image
 ```
 
-## Production Deployment
+## VPS Deployment
 
-The production server should pull the published image instead of building from source. Keep only these files on the server:
+The VPS should pull the published GHCR image instead of building from source. The deployment workflow copies `docker-compose.prod.yaml` to this server path:
 
 ```text
-docker-compose.yml
-.env
+/opt/stacks/flux-filters/docker-compose.yaml
 ```
 
-Use `docker-compose.prod.yml` from this repository as the server `docker-compose.yml`.
+After image-based deployment is working, keep only these files on the VPS:
+
+```text
+/opt/stacks/flux-filters/docker-compose.yaml
+/opt/stacks/flux-filters/.env
+```
+
+The VPS `.env` file should contain runtime configuration:
+
+```bash
+PORT=3000
+MINIFLUX_ALLOWED_HOSTS=rss.autonate.dev
+IMAGE_TAG=latest
+```
+
+The CD workflow updates `IMAGE_TAG` to the deployed commit SHA during each deployment.
 
 The production Compose file expects an existing external Docker network called `edge-net`, so create it once if needed:
 
@@ -148,15 +168,29 @@ The production Compose file expects an existing external Docker network called `
 docker network create edge-net
 ```
 
-Deploy or update the app on the production server:
+Prepare the deployment directory once before the first deployment:
 
 ```bash
-docker compose pull
-docker compose up -d
-docker compose logs -f
+sudo mkdir -p /opt/stacks/flux-filters
+sudo chown <vps-user>:<vps-user> /opt/stacks/flux-filters
+chmod 755 /opt/stacks/flux-filters
+```
+
+If the deployment user cannot run Docker commands, add it to the Docker group:
+
+```bash
+sudo usermod -aG docker <vps-user>
 ```
 
 The production container exposes port `3000` only to `edge-net`. Point the reverse proxy at the `flux-filters` service on port `3000`.
+
+Manual rollback can be done by setting `IMAGE_TAG` in `/opt/stacks/flux-filters/.env` to a previous commit SHA and running:
+
+```bash
+cd /opt/stacks/flux-filters
+docker compose pull
+docker compose up -d
+```
 
 ## Security Notes
 

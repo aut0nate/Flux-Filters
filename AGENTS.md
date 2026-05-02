@@ -40,7 +40,7 @@ The browser holds the Miniflux API token in session storage only. The Express se
 - Start production server: `npm run start`
 - Run tests: `npm run test`
 - Run local Docker build: `docker compose up --build`
-- Run production Compose shape: use `docker-compose.prod.yml` on the production server as `docker-compose.yml`
+- Run production Compose shape: use `docker-compose.prod.yaml` on the VPS as `/opt/stacks/flux-filters/docker-compose.yaml`
 
 ## Code style guidelines
 
@@ -66,15 +66,17 @@ The browser holds the Miniflux API token in session storage only. The Express se
 
 ## Deployment notes
 
-- The intended deployment target is a production server using Docker.
+- The intended deployment target is a VPS using Docker Compose.
 - The app is designed to sit behind a reverse proxy such as Nginx or Caddy.
 - The public site for this project is expected to be `https://flux-filters.autonate.dev`.
 - The Miniflux hostname should be explicitly allow-listed in `MINIFLUX_ALLOWED_HOSTS`.
-- GitHub Actions publishes Docker Hub images from `main` as `aut0nate/flux-filters:latest` and `aut0nate/flux-filters:<full-git-sha>`.
-- Required GitHub secrets are `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`.
+- CI lives in `.github/workflows/ci.yml` and runs linting, tests, the production build, Docker build, and a `/api/health` smoke test.
+- CD lives in `.github/workflows/cd.yml`, runs only after CI succeeds on `main`, publishes `ghcr.io/aut0nate/flux-filters:latest` and `ghcr.io/aut0nate/flux-filters:<full-git-sha>`, then deploys to the VPS over SSH.
+- Required GitHub Actions secrets for deployment are `VPS_HOST`, `VPS_PORT`, `VPS_SSH_KEY`, and `VPS_USER`.
 - The local `docker-compose.yml` builds from source and publishes port `3000`.
-- The production `docker-compose.prod.yml` uses the published image and the external `edge-net` Docker network.
-- The production server should keep only `docker-compose.yml` and `.env`; do not build from source there once image deployment is working.
+- The production `docker-compose.prod.yaml` uses the GHCR image, `${IMAGE_TAG:-latest}`, and the external `edge-net` Docker network.
+- The VPS should keep only `/opt/stacks/flux-filters/docker-compose.yaml` and `/opt/stacks/flux-filters/.env`; do not build from source there once image deployment is working.
+- Runtime secrets belong in the VPS `.env` file, not in GitHub workflow files or the Docker image.
 
 ## Project constraints and rules
 
