@@ -157,4 +157,4 @@ If you have improvements, feature ideas, or bug fixes, feel free to open an issu
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE.md](./LICENSE.md) for details.
+This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
