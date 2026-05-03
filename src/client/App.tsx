@@ -1,6 +1,13 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 
-import { fetchFeed, fetchFeeds, saveFeedRules, testConnection, type ClientSession } from "./api";
+import {
+  ApiError,
+  fetchFeed,
+  fetchFeeds,
+  saveFeedRules,
+  testConnection,
+  type ClientSession
+} from "./api";
 import FeedSidebar from "./components/FeedSidebar";
 import LoginScreen from "./components/LoginScreen";
 import RuleEditor from "./components/RuleEditor";
@@ -142,7 +149,7 @@ export default function App() {
         const message = error instanceof Error ? error.message : "Unable to load feeds.";
         setSessionError(message);
 
-        if (message.toLowerCase().includes("unauthor")) {
+        if (error instanceof ApiError && error.status === 401) {
           writeSavedSession(null);
           setSession(null);
         }
