@@ -13,6 +13,16 @@ interface AuthResponse {
   serverUrl: string;
 }
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let message = "Request failed.";
@@ -26,7 +36,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
       message = response.statusText || message;
     }
 
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   return (await response.json()) as T;
