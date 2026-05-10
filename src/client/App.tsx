@@ -38,12 +38,16 @@ interface DraftState {
 }
 
 const SESSION_STORAGE_KEY = "flux-filters-session";
+const LEGACY_SESSION_STORAGE_KEY = "flux-filters-session-storage";
 const THEME_STORAGE_KEY = "flux-filters-theme";
 
 type ThemeMode = "dark" | "light";
 
 function readSavedSession(): SavedSession | null {
-  const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+  const raw =
+    window.localStorage.getItem(SESSION_STORAGE_KEY) ??
+    window.sessionStorage.getItem(SESSION_STORAGE_KEY) ??
+    window.sessionStorage.getItem(LEGACY_SESSION_STORAGE_KEY);
   if (!raw) {
     return null;
   }
@@ -57,11 +61,13 @@ function readSavedSession(): SavedSession | null {
 
 function writeSavedSession(session: SavedSession | null) {
   if (!session) {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
     window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    window.sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
     return;
   }
 
-  window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+  window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
 }
 
 function readSavedTheme(): ThemeMode {

@@ -627,6 +627,14 @@ a {
   font-family: "SFMono-Regular", "Menlo", monospace;
 }
 
+.rule-warnings {
+  margin: 0.9rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--danger-text);
+  display: grid;
+  gap: 0.35rem;
+}
+
 .empty-state,
 .compact {
   color: var(--muted);

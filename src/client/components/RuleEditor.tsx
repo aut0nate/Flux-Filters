@@ -44,6 +44,42 @@ function removeRule(rules: RuleDraft[], ruleId: string): RuleDraft[] {
   return rules.filter((rule) => rule.id !== ruleId);
 }
 
+function cloneRule(rules: RuleDraft[], rule: RuleDraft, index: number): RuleDraft[] {
+  const nextRules = [...rules];
+  nextRules.splice(index + 1, 0, createRuleDraft(rule.field, rule.pattern, rule.caseInsensitive));
+  return nextRules;
+}
+
+function getRuleWarnings(rules: RuleDraft[]): string[] {
+  const warnings: string[] = [];
+  const seen = new Set<string>();
+
+  rules.forEach((rule, index) => {
+    const key = `${rule.field}=${rule.caseInsensitive ? "(?i)" : ""}${rule.pattern}`;
+    if (seen.has(key)) {
+      warnings.push(`Rule ${index + 1} is a duplicate of an earlier rule.`);
+    } else {
+      seen.add(key);
+    }
+
+    if (!rule.pattern.trim()) {
+      warnings.push(`Rule ${index + 1} has an empty pattern.`);
+      return;
+    }
+
+    if (rule.field !== "EntryDate") {
+      try {
+        const flags = rule.caseInsensitive ? "i" : "";
+        void new RegExp(rule.pattern, flags);
+      } catch {
+        warnings.push(`Rule ${index + 1} has an invalid regex pattern.`);
+      }
+    }
+  });
+
+  return warnings;
+}
+
 function getNextCaseInsensitiveValue(rule: RuleDraft, nextField: RuleDraft["field"]) {
   if (!supportsCaseInsensitiveMatching(nextField)) {
     return false;
@@ -131,6 +167,9 @@ function renderRuleRows(
           >
             Remove
           </button>
+          <button type="button" onClick={() => onChangeRules(tab, cloneRule(rules, rule, index))}>
+            Clone
+          </button>
         </div>
       </div>
     </article>
@@ -153,6 +192,7 @@ export default function RuleEditor({
 }: RuleEditorProps) {
   const activeRules = activeTab === "block" ? blockRules : allowRules;
   const compiledRules = compileRuleText(activeRules);
+  const warnings = getRuleWarnings(activeRules);
 
   return (
     <section className="editor-panel">
@@ -230,6 +270,13 @@ export default function RuleEditor({
         <h3>Compiled rules</h3>
         <textarea readOnly value={compiledRules} rows={Math.max(activeRules.length + 1, 8)} />
         <p>This is the exact text that will be sent to Miniflux for the current tab.</p>
+        {warnings.length > 0 ? (
+          <ul className="rule-warnings">
+            {warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        ) : null}
       </div>
 
       {saveError ? <div className="form-error">{saveError}</div> : null}
