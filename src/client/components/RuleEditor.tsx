@@ -9,6 +9,19 @@ import {
 } from "../../shared/miniflux";
 
 type RuleTab = "block" | "allow";
+type RuleWarning =
+  | {
+      type: "duplicate";
+      id: string;
+      message: string;
+      targetRuleId: string;
+      targetRuleNumber: number;
+    }
+  | {
+      type: "text";
+      id: string;
+      message: string;
+    };
 
 interface RuleEditorProps {
   feed: MinifluxFeed;
@@ -51,20 +64,33 @@ function cloneRule(rules: RuleDraft[], rule: RuleDraft, index: number): RuleDraf
   return nextRules;
 }
 
-function getRuleWarnings(rules: RuleDraft[]): string[] {
-  const warnings: string[] = [];
-  const seen = new Set<string>();
+function getRuleWarnings(rules: RuleDraft[]): RuleWarning[] {
+  const warnings: RuleWarning[] = [];
+  const seen = new Map<string, { ruleId: string; ruleNumber: number }>();
 
   rules.forEach((rule, index) => {
-    const key = `${rule.field}=${rule.caseInsensitive ? "(?i)" : ""}${rule.pattern}`;
-    if (seen.has(key)) {
-      warnings.push(`Rule ${index + 1} is a duplicate of an earlier rule.`);
+    const ruleNumber = index + 1;
+    const key = compileRuleText([rule]);
+    const earlierRule = seen.get(key);
+
+    if (earlierRule) {
+      warnings.push({
+        type: "duplicate",
+        id: `${rule.id}-duplicate`,
+        message: `Rule ${ruleNumber} is a duplicate of rule ${earlierRule.ruleNumber}.`,
+        targetRuleId: earlierRule.ruleId,
+        targetRuleNumber: earlierRule.ruleNumber
+      });
     } else {
-      seen.add(key);
+      seen.set(key, { ruleId: rule.id, ruleNumber });
     }
 
     if (!rule.pattern.trim()) {
-      warnings.push(`Rule ${index + 1} has an empty pattern.`);
+      warnings.push({
+        type: "text",
+        id: `${rule.id}-empty-pattern`,
+        message: `Rule ${ruleNumber} has an empty pattern.`
+      });
       return;
     }
 
@@ -73,7 +99,11 @@ function getRuleWarnings(rules: RuleDraft[]): string[] {
         const flags = rule.caseInsensitive ? "i" : "";
         void new RegExp(rule.pattern, flags);
       } catch {
-        warnings.push(`Rule ${index + 1} has an invalid regex pattern.`);
+        warnings.push({
+          type: "text",
+          id: `${rule.id}-invalid-pattern`,
+          message: `Rule ${ruleNumber} has an invalid regex pattern.`
+        });
       }
     }
   });
@@ -93,132 +123,6 @@ function getNextCaseInsensitiveValue(rule: RuleDraft, nextField: RuleDraft["fiel
   return rule.caseInsensitive;
 }
 
-function normalisePatternTokens(pattern: string): string[] {
-  return splitTopLevelAlternatives(pattern);
-}
-
-function splitTopLevelAlternatives(value: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let depth = 0;
-  let escaped = false;
-
-  for (const char of value) {
-    if (escaped) {
-      current += char;
-      escaped = false;
-      continue;
-    }
-
-    if (char === "\\") {
-      current += char;
-      escaped = true;
-      continue;
-    }
-
-    if (char === "(") {
-      depth += 1;
-    }
-
-    if (char === ")") {
-      depth = Math.max(0, depth - 1);
-    }
-
-    if (char === "|" && depth === 0) {
-      tokens.push(current.trim());
-      current = "";
-      continue;
-    }
-
-    current += char;
-  }
-
-  tokens.push(current.trim());
-  return tokens.filter(Boolean);
-}
-
-function findAlternationGroups(pattern: string): Array<{ start: number; end: number; tokens: string[] }> {
-  const groups: Array<{ start: number; end: number; tokens: string[] }> = [];
-
-  for (let index = 0; index < pattern.length; index += 1) {
-    if (pattern[index] !== "(" || pattern[index - 1] === "\\") {
-      continue;
-    }
-
-    let depth = 1;
-    let cursor = index + 1;
-    let escaped = false;
-
-    while (cursor < pattern.length && depth > 0) {
-      const char = pattern[cursor];
-      if (escaped) {
-        escaped = false;
-      } else if (char === "\\") {
-        escaped = true;
-      } else if (char === "(") {
-        depth += 1;
-      } else if (char === ")") {
-        depth -= 1;
-      }
-      cursor += 1;
-    }
-
-    if (depth !== 0) {
-      continue;
-    }
-
-    const inner = pattern.slice(index + 1, cursor - 1);
-    const tokens = splitTopLevelAlternatives(inner);
-    if (tokens.length > 1) {
-      groups.push({ start: index + 1, end: cursor - 1, tokens });
-    }
-    index = cursor - 1;
-  }
-
-  return groups;
-}
-
-function appendIntoPatternAlternation(pattern: string, token: string): string {
-  const groups = findAlternationGroups(pattern);
-  if (groups.length === 0) {
-    const trimmedPattern = pattern.trim();
-    return trimmedPattern ? `${trimmedPattern}|${token}` : token;
-  }
-
-  const best = groups.reduce((winner, group) => (group.tokens.length > winner.tokens.length ? group : winner));
-  if (best.tokens.some((existing) => existing.toLowerCase() === token.toLowerCase())) {
-    return pattern;
-  }
-
-  const nextInner = `${pattern.slice(best.start, best.end)}|${token}`;
-  return `${pattern.slice(0, best.start)}${nextInner}${pattern.slice(best.end)}`;
-}
-
-function getRuleSkeleton(pattern: string): string {
-  return pattern
-    .replace(/\(\?:/g, "(")
-    .replace(/\([^()]*\|[^()]*\)/g, "(ALT)")
-    .replace(/\s+/g, "");
-}
-
-function appendSuggestionAcrossMatchingRules(rules: RuleDraft[], sourceRuleId: string, token: string): RuleDraft[] {
-  const sourceRule = rules.find((rule) => rule.id === sourceRuleId);
-  if (!sourceRule) {
-    return rules;
-  }
-
-  const sourceSkeleton = getRuleSkeleton(sourceRule.pattern);
-
-  return rules.map((rule) => {
-    const isSiblingPair = rule.field === sourceRule.field && getRuleSkeleton(rule.pattern) === sourceSkeleton;
-    if (!isSiblingPair && rule.id !== sourceRuleId) {
-      return rule;
-    }
-
-    return { ...rule, pattern: appendIntoPatternAlternation(rule.pattern, token) };
-  });
-}
-
 export default function RuleEditor({
   feed,
   activeTab,
@@ -234,7 +138,6 @@ export default function RuleEditor({
   saveMessage
 }: RuleEditorProps) {
   const [showSearch, setShowSearch] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const activeRules = activeTab === "block" ? blockRules : allowRules;
 
@@ -247,22 +150,19 @@ export default function RuleEditor({
     return activeRules.filter((rule) => `${rule.field} ${rule.pattern}`.toLowerCase().includes(query));
   }, [activeRules, searchQuery]);
 
-  const suggestionTokens = useMemo(() => {
-    const tokens = new Set<string>();
-    for (const rule of activeRules) {
-      for (const token of normalisePatternTokens(rule.pattern)) {
-        tokens.add(token);
-      }
-    }
-    return Array.from(tokens);
-  }, [activeRules]);
-
   const compiledRules = compileRuleText(activeRules);
   const warnings = getRuleWarnings(activeRules);
   const ruleToolbarRef = useRef<HTMLDivElement | null>(null);
 
   function handleJumpToBottom() {
     ruleToolbarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function handleJumpToRule(ruleId: string) {
+    setSearchQuery("");
+    window.requestAnimationFrame(() => {
+      document.getElementById(`rule-${ruleId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   }
 
   return (
@@ -283,9 +183,6 @@ export default function RuleEditor({
           </button>
           <button type="button" className="ghost-button" onClick={() => setShowSearch((value) => !value)}>
             {showSearch ? "Hide search" : "Search"}
-          </button>
-          <button type="button" className="ghost-button" onClick={() => setShowSuggestions((value) => !value)}>
-            {showSuggestions ? "Hide suggestions" : "Suggestions"}
           </button>
         </div>
       </div>
@@ -326,19 +223,9 @@ export default function RuleEditor({
         {activeRules.length > 0 && filteredRules.length === 0 ? <div className="empty-state">No rules match this search.</div> : null}
         {filteredRules.map((rule) => {
           const index = activeRules.findIndex((candidate) => candidate.id === rule.id);
-          const currentTokens = normalisePatternTokens(rule.pattern);
-          const typedQuery = rule.pattern.trim().toLowerCase();
-          const matchingSuggestions = showSuggestions
-            ? suggestionTokens
-                .filter((token) => {
-                  const tokenLower = token.toLowerCase();
-                  return typedQuery.length > 1 && tokenLower.includes(typedQuery) && !currentTokens.includes(token);
-                })
-                .slice(0, 6)
-            : [];
 
           return (
-            <article className="rule-card" key={rule.id}>
+            <article className="rule-card" id={`rule-${rule.id}`} key={rule.id}>
               <div className="rule-grid">
                 <label className="rule-grid__field">
                   <span>Field</span>
@@ -381,26 +268,6 @@ export default function RuleEditor({
                   ) : (
                     <p className="rule-note">Date rules use Miniflux date syntax, not regex matching flags.</p>
                   )}
-
-                  {matchingSuggestions.length > 0 ? (
-                    <div className="rule-suggestions">
-                      <span>Quick append suggestions</span>
-                      <div className="rule-suggestions__list">
-                        {matchingSuggestions.map((token) => (
-                          <button
-                            key={`${rule.id}-${token}`}
-                            type="button"
-                            className="ghost-button"
-                            onClick={() =>
-                              onChangeRules(activeTab, appendSuggestionAcrossMatchingRules(activeRules, rule.id, token))
-                            }
-                          >
-                            Add <span className="pipe-separator">|</span> {token}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
                 </label>
 
                 <div className="rule-actions">
@@ -430,7 +297,14 @@ export default function RuleEditor({
         {warnings.length > 0 ? (
           <ul className="rule-warnings">
             {warnings.map((warning) => (
-              <li key={warning}>{warning}</li>
+              <li key={warning.id}>
+                <span>{warning.message}</span>
+                {warning.type === "duplicate" ? (
+                  <button type="button" onClick={() => handleJumpToRule(warning.targetRuleId)}>
+                    Go to rule {warning.targetRuleNumber}
+                  </button>
+                ) : null}
+              </li>
             ))}
           </ul>
         ) : null}

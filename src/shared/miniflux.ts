@@ -108,6 +108,19 @@ export function parseRuleText(text: string): RuleDraft[] {
     });
 }
 
+function applyWordBoundaryPattern(field: RuleField, pattern: string): string {
+  const trimmedPattern = pattern.trim();
+  if (!supportsCaseInsensitiveMatching(field) || !trimmedPattern) {
+    return trimmedPattern;
+  }
+
+  if (/^\\b\(.+\)\\b$/.test(trimmedPattern)) {
+    return trimmedPattern;
+  }
+
+  return `\\b(${trimmedPattern})\\b`;
+}
+
 export function compileRuleText(rules: RuleDraft[]): string {
   return rules
     .map((rule) => {
@@ -116,7 +129,7 @@ export function compileRuleText(rules: RuleDraft[]): string {
           ? CASE_INSENSITIVE_PREFIX
           : "";
 
-      return `${rule.field}=${prefix}${rule.pattern}`;
+      return `${rule.field}=${prefix}${applyWordBoundaryPattern(rule.field, rule.pattern)}`;
     })
     .join("\n")
     .trim();
