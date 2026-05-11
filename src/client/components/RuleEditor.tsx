@@ -7,6 +7,7 @@ import {
   type MinifluxFeed,
   type RuleDraft
 } from "../../shared/miniflux";
+import { useRef } from "react";
 
 type RuleTab = "block" | "allow";
 
@@ -93,108 +94,89 @@ function getNextCaseInsensitiveValue(rule: RuleDraft, nextField: RuleDraft["fiel
   return rule.caseInsensitive;
 }
 
-function normalisePatternTokens(pattern: string): string[] {
-  return pattern
-    .split("|")
-    .map((token) => token.trim())
-    .filter(Boolean);
-}
+function renderRuleRows(
+  tab: RuleTab,
+  rules: RuleDraft[],
+  onChangeRules: (tab: RuleTab, rules: RuleDraft[]) => void
+) {
+  return rules.map((rule, index) => (
+    <article className="rule-card" key={rule.id}>
+      <div className="rule-grid">
+        <p className="rule-index">#{index + 1}</p>
+        <label className="rule-grid__field">
+          <span>Field</span>
+          <select
+            value={rule.field}
+            onChange={(event) =>
+              onChangeRules(
+                tab,
+                updateRule(rules, rule.id, {
+                  field: event.target.value as RuleDraft["field"],
+                  caseInsensitive: getNextCaseInsensitiveValue(
+                    rule,
+                    event.target.value as RuleDraft["field"]
+                  )
+                })
+              )
+            }
+          >
+            {RULE_FIELDS.map((field) => (
+              <option key={field} value={field}>
+                {field}
+              </option>
+            ))}
+          </select>
+        </label>
 
-function splitTopLevelAlternatives(value: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let depth = 0;
-  let escaped = false;
+        <label className="rule-grid__pattern">
+          <span>Pattern</span>
+          <textarea
+            value={rule.pattern}
+            rows={3}
+            onChange={(event) =>
+              onChangeRules(tab, updateRule(rules, rule.id, { pattern: event.target.value }))
+            }
+          />
+          {supportsCaseInsensitiveMatching(rule.field) ? (
+            <div className="rule-option">
+              <input
+                type="checkbox"
+                checked={rule.caseInsensitive}
+                onChange={(event) =>
+                  onChangeRules(
+                    tab,
+                    updateRule(rules, rule.id, { caseInsensitive: event.target.checked })
+                  )
+                }
+              />
+              <span>Add `(?i)` for case-insensitive matching</span>
+            </div>
+          ) : (
+            <p className="rule-note">Date rules use Miniflux date syntax, not regex matching flags.</p>
+          )}
+        </label>
 
-  for (const char of value) {
-    if (escaped) {
-      current += char;
-      escaped = false;
-      continue;
-    }
-    if (char === "\\") {
-      current += char;
-      escaped = true;
-      continue;
-    }
-    if (char === "(") depth += 1;
-    if (char === ")") depth = Math.max(0, depth - 1);
-    if (char === "|" && depth === 0) {
-      tokens.push(current.trim());
-      current = "";
-      continue;
-    }
-    current += char;
-  }
-  tokens.push(current.trim());
-  return tokens.filter(Boolean);
-}
-
-function findAlternationGroups(pattern: string): Array<{ start: number; end: number; tokens: string[] }> {
-  const groups: Array<{ start: number; end: number; tokens: string[] }> = [];
-  for (let index = 0; index < pattern.length; index += 1) {
-    if (pattern[index] !== "(" || pattern[index - 1] === "\\") continue;
-    let depth = 1;
-    let cursor = index + 1;
-    let escaped = false;
-    while (cursor < pattern.length && depth > 0) {
-      const char = pattern[cursor];
-      if (escaped) {
-        escaped = false;
-      } else if (char === "\\") {
-        escaped = true;
-      } else if (char === "(") {
-        depth += 1;
-      } else if (char === ")") {
-        depth -= 1;
-      }
-      cursor += 1;
-    }
-    if (depth !== 0) continue;
-    const inner = pattern.slice(index + 1, cursor - 1);
-    const tokens = splitTopLevelAlternatives(inner);
-    if (tokens.length > 1) {
-      groups.push({ start: index + 1, end: cursor - 1, tokens });
-    }
-    index = cursor - 1;
-  }
-  return groups;
-}
-
-function appendIntoPatternAlternation(pattern: string, token: string): string {
-  const groups = findAlternationGroups(pattern);
-  if (groups.length === 0) {
-    const trimmedPattern = pattern.trim();
-    return trimmedPattern ? `${trimmedPattern}|${token}` : token;
-  }
-
-  const best = groups.reduce((winner, group) => (group.tokens.length > winner.tokens.length ? group : winner));
-  if (best.tokens.some((existing) => existing.toLowerCase() === token.toLowerCase())) {
-    return pattern;
-  }
-  const nextInner = `${pattern.slice(best.start, best.end)}|${token}`;
-  return `${pattern.slice(0, best.start)}${nextInner}${pattern.slice(best.end)}`;
-}
-
-function getRuleSkeleton(pattern: string): string {
-  return pattern
-    .replace(/\(\?:/g, "(")
-    .replace(/\([^()]*\|[^()]*\)/g, "(ALT)")
-    .replace(/\s+/g, "");
-}
-
-function appendSuggestionAcrossMatchingRules(rules: RuleDraft[], sourceRuleId: string, token: string): RuleDraft[] {
-  const sourceRule = rules.find((rule) => rule.id === sourceRuleId);
-  if (!sourceRule) return rules;
-  const sourceSkeleton = getRuleSkeleton(sourceRule.pattern);
-
-  return rules.map((rule) => {
-    const isSiblingPair = rule.field === sourceRule.field && getRuleSkeleton(rule.pattern) === sourceSkeleton;
-    if (!isSiblingPair && rule.id !== sourceRuleId) {
-      return rule;
-    }
-    return { ...rule, pattern: appendIntoPatternAlternation(rule.pattern, token) };
-  });
+        <div className="rule-actions">
+          <button type="button" onClick={() => onChangeRules(tab, moveRule(rules, index, -1))}>
+            Up
+          </button>
+          <button type="button" onClick={() => onChangeRules(tab, moveRule(rules, index, 1))}>
+            Down
+          </button>
+          <button
+            type="button"
+            className="danger"
+            onClick={() => onChangeRules(tab, removeRule(rules, rule.id))}
+          >
+            Remove
+          </button>
+          <button type="button" onClick={() => onChangeRules(tab, cloneRule(rules, rule, index))}>
+            Clone
+          </button>
+        </div>
+      </div>
+    </article>
+  ));
 }
 
 export default function RuleEditor({
@@ -237,6 +219,11 @@ export default function RuleEditor({
 
   const compiledRules = compileRuleText(activeRules);
   const warnings = getRuleWarnings(activeRules);
+  const ruleToolbarRef = useRef<HTMLDivElement | null>(null);
+
+  function handleJumpToBottom() {
+    ruleToolbarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
     <section className="editor-panel">
@@ -248,6 +235,9 @@ export default function RuleEditor({
         </div>
 
         <div className="editor-header__actions">
+          <button type="button" className="ghost-button" onClick={handleJumpToBottom}>
+            Jump to bottom
+          </button>
           <button type="button" className="ghost-button" onClick={onReset} disabled={!dirty || saving}>
             Reset
           </button>
@@ -385,7 +375,7 @@ export default function RuleEditor({
         })}
       </div>
 
-      <div className="rule-toolbar">
+      <div className="rule-toolbar" ref={ruleToolbarRef}>
         <div className="rule-toolbar__group">
           <button type="button" className="ghost-button" onClick={() => onChangeRules(activeTab, [...activeRules, createRuleDraft()])}>Add rule</button>
           <span className="pill">{activeRules.length} rules</span>
