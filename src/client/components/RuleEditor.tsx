@@ -100,13 +100,101 @@ function normalisePatternTokens(pattern: string): string[] {
     .filter(Boolean);
 }
 
-function appendPatternWithPipe(currentPattern: string, token: string): string {
-  const trimmedPattern = currentPattern.trim();
-  if (!trimmedPattern) {
-    return token;
+function splitTopLevelAlternatives(value: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let depth = 0;
+  let escaped = false;
+
+  for (const char of value) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      current += char;
+      escaped = true;
+      continue;
+    }
+    if (char === "(") depth += 1;
+    if (char === ")") depth = Math.max(0, depth - 1);
+    if (char === "|" && depth === 0) {
+      tokens.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  tokens.push(current.trim());
+  return tokens.filter(Boolean);
+}
+
+function findAlternationGroups(pattern: string): Array<{ start: number; end: number; tokens: string[] }> {
+  const groups: Array<{ start: number; end: number; tokens: string[] }> = [];
+  for (let index = 0; index < pattern.length; index += 1) {
+    if (pattern[index] !== "(" || pattern[index - 1] === "\\") continue;
+    let depth = 1;
+    let cursor = index + 1;
+    let escaped = false;
+    while (cursor < pattern.length && depth > 0) {
+      const char = pattern[cursor];
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "(") {
+        depth += 1;
+      } else if (char === ")") {
+        depth -= 1;
+      }
+      cursor += 1;
+    }
+    if (depth !== 0) continue;
+    const inner = pattern.slice(index + 1, cursor - 1);
+    const tokens = splitTopLevelAlternatives(inner);
+    if (tokens.length > 1) {
+      groups.push({ start: index + 1, end: cursor - 1, tokens });
+    }
+    index = cursor - 1;
+  }
+  return groups;
+}
+
+function appendIntoPatternAlternation(pattern: string, token: string): string {
+  const groups = findAlternationGroups(pattern);
+  if (groups.length === 0) {
+    const trimmedPattern = pattern.trim();
+    return trimmedPattern ? `${trimmedPattern}|${token}` : token;
   }
 
-  return `${trimmedPattern}|${token}`;
+  const best = groups.reduce((winner, group) => (group.tokens.length > winner.tokens.length ? group : winner));
+  if (best.tokens.some((existing) => existing.toLowerCase() === token.toLowerCase())) {
+    return pattern;
+  }
+  const nextInner = `${pattern.slice(best.start, best.end)}|${token}`;
+  return `${pattern.slice(0, best.start)}${nextInner}${pattern.slice(best.end)}`;
+}
+
+function getRuleSkeleton(pattern: string): string {
+  return pattern
+    .replace(/\(\?:/g, "(")
+    .replace(/\([^()]*\|[^()]*\)/g, "(ALT)")
+    .replace(/\s+/g, "");
+}
+
+function appendSuggestionAcrossMatchingRules(rules: RuleDraft[], sourceRuleId: string, token: string): RuleDraft[] {
+  const sourceRule = rules.find((rule) => rule.id === sourceRuleId);
+  if (!sourceRule) return rules;
+  const sourceSkeleton = getRuleSkeleton(sourceRule.pattern);
+
+  return rules.map((rule) => {
+    const isSiblingPair = rule.field === sourceRule.field && getRuleSkeleton(rule.pattern) === sourceSkeleton;
+    if (!isSiblingPair && rule.id !== sourceRuleId) {
+      return rule;
+    }
+    return { ...rule, pattern: appendIntoPatternAlternation(rule.pattern, token) };
+  });
 }
 
 export default function RuleEditor({
@@ -273,9 +361,11 @@ export default function RuleEditor({
                             key={`${rule.id}-${token}`}
                             type="button"
                             className="ghost-button"
-                            onClick={() => onChangeRules(activeTab, updateRule(activeRules, rule.id, { pattern: appendPatternWithPipe(rule.pattern, token) }))}
+                            onClick={() =>
+                              onChangeRules(activeTab, appendSuggestionAcrossMatchingRules(activeRules, rule.id, token))
+                            }
                           >
-                            Add |{token}
+                            Add <span className="pipe-separator">|</span> {token}
                           </button>
                         ))}
                       </div>

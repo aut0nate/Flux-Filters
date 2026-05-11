@@ -545,6 +545,12 @@ a {
   flex-wrap: wrap;
   gap: 0.5rem;
 }
+
+.pipe-separator {
+  font-family: "SFMono-Regular", "Menlo", monospace;
+  font-weight: 700;
+  padding: 0 0.1rem;
+}
 .info-panel,
 .compiled-panel,
 .empty-state,
