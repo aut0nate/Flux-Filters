@@ -511,6 +511,40 @@ a {
   border-color: transparent;
 }
 
+
+.rule-search-panel {
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--panel-soft);
+  padding: 0.85rem 0.95rem;
+}
+
+.rule-search-panel label {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.rule-search-panel span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.rule-suggestions {
+  margin-top: 0.4rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.rule-suggestions span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.rule-suggestions__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
 .info-panel,
 .compiled-panel,
 .empty-state,

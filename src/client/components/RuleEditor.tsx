@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import {
   RULE_FIELDS,
   compileRuleText,
@@ -92,88 +93,20 @@ function getNextCaseInsensitiveValue(rule: RuleDraft, nextField: RuleDraft["fiel
   return rule.caseInsensitive;
 }
 
-function renderRuleRows(
-  tab: RuleTab,
-  rules: RuleDraft[],
-  onChangeRules: (tab: RuleTab, rules: RuleDraft[]) => void
-) {
-  return rules.map((rule, index) => (
-    <article className="rule-card" key={rule.id}>
-      <div className="rule-grid">
-        <label className="rule-grid__field">
-          <span>Field</span>
-          <select
-            value={rule.field}
-            onChange={(event) =>
-              onChangeRules(
-                tab,
-                updateRule(rules, rule.id, {
-                  field: event.target.value as RuleDraft["field"],
-                  caseInsensitive: getNextCaseInsensitiveValue(
-                    rule,
-                    event.target.value as RuleDraft["field"]
-                  )
-                })
-              )
-            }
-          >
-            {RULE_FIELDS.map((field) => (
-              <option key={field} value={field}>
-                {field}
-              </option>
-            ))}
-          </select>
-        </label>
+function normalisePatternTokens(pattern: string): string[] {
+  return pattern
+    .split("|")
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
 
-        <label className="rule-grid__pattern">
-          <span>Pattern</span>
-          <textarea
-            value={rule.pattern}
-            rows={3}
-            onChange={(event) =>
-              onChangeRules(tab, updateRule(rules, rule.id, { pattern: event.target.value }))
-            }
-          />
-          {supportsCaseInsensitiveMatching(rule.field) ? (
-            <div className="rule-option">
-              <input
-                type="checkbox"
-                checked={rule.caseInsensitive}
-                onChange={(event) =>
-                  onChangeRules(
-                    tab,
-                    updateRule(rules, rule.id, { caseInsensitive: event.target.checked })
-                  )
-                }
-              />
-              <span>Add `(?i)` for case-insensitive matching</span>
-            </div>
-          ) : (
-            <p className="rule-note">Date rules use Miniflux date syntax, not regex matching flags.</p>
-          )}
-        </label>
+function appendPatternWithPipe(currentPattern: string, token: string): string {
+  const trimmedPattern = currentPattern.trim();
+  if (!trimmedPattern) {
+    return token;
+  }
 
-        <div className="rule-actions">
-          <button type="button" onClick={() => onChangeRules(tab, moveRule(rules, index, -1))}>
-            Up
-          </button>
-          <button type="button" onClick={() => onChangeRules(tab, moveRule(rules, index, 1))}>
-            Down
-          </button>
-          <button
-            type="button"
-            className="danger"
-            onClick={() => onChangeRules(tab, removeRule(rules, rule.id))}
-          >
-            Remove
-          </button>
-          <button type="button" onClick={() => onChangeRules(tab, cloneRule(rules, rule, index))}>
-            Clone
-          </button>
-        </div>
-      </div>
-    </article>
-  ));
+  return `${trimmedPattern}|${token}`;
 }
 
 export default function RuleEditor({
@@ -190,7 +123,30 @@ export default function RuleEditor({
   saveError,
   saveMessage
 }: RuleEditorProps) {
+  const [showSearch, setShowSearch] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
   const activeRules = activeTab === "block" ? blockRules : allowRules;
+
+  const filteredRules = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      return activeRules;
+    }
+
+    return activeRules.filter((rule) => `${rule.field} ${rule.pattern}`.toLowerCase().includes(query));
+  }, [activeRules, searchQuery]);
+
+  const suggestionTokens = useMemo(() => {
+    const tokens = new Set<string>();
+    for (const rule of activeRules) {
+      for (const token of normalisePatternTokens(rule.pattern)) {
+        tokens.add(token);
+      }
+    }
+    return Array.from(tokens);
+  }, [activeRules]);
+
   const compiledRules = compileRuleText(activeRules);
   const warnings = getRuleWarnings(activeRules);
 
@@ -207,63 +163,144 @@ export default function RuleEditor({
           <button type="button" className="ghost-button" onClick={onReset} disabled={!dirty || saving}>
             Reset
           </button>
+          <button type="button" className="ghost-button" onClick={() => setShowSearch((value) => !value)}>
+            {showSearch ? "Hide search" : "Search"}
+          </button>
+          <button type="button" className="ghost-button" onClick={() => setShowSuggestions((value) => !value)}>
+            {showSuggestions ? "Hide suggestions" : "Suggestions"}
+          </button>
         </div>
       </div>
 
+      {showSearch ? (
+        <div className="rule-search-panel">
+          <label>
+            <span>Search rules in this feed and tab</span>
+            <input
+              className="search-input"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search by field or pattern"
+            />
+          </label>
+        </div>
+      ) : null}
+
       <div className="editor-tabs">
-        <button
-          type="button"
-          className={activeTab === "block" ? "active" : ""}
-          onClick={() => onTabChange("block")}
-        >
+        <button type="button" className={activeTab === "block" ? "active" : ""} onClick={() => onTabChange("block")}>
           Entry blocking rules
         </button>
-        <button
-          type="button"
-          className={activeTab === "allow" ? "active" : ""}
-          onClick={() => onTabChange("allow")}
-        >
+        <button type="button" className={activeTab === "allow" ? "active" : ""} onClick={() => onTabChange("allow")}>
           Entry allow rules
         </button>
       </div>
 
       <div className="info-panel">
-        <p>
-          Build rules here, then Miniflux saves them back in its normal one-rule-per-line format.
-        </p>
+        <p>Build rules here, then Miniflux saves them back in its normal one-rule-per-line format.</p>
         <p>New text-based rules start with `(?i)` enabled, and you can switch it off per rule.</p>
         <p>
-          Test a pattern on{" "}
-          <a
-            href="https://regex101.com/"
-            target="_blank"
-            rel="noreferrer"
-          >
-            regex101
-          </a>{" "}
-          using the Golang flavour.
+          Test a pattern on <a href="https://regex101.com/" target="_blank" rel="noreferrer">regex101</a> using the Golang flavour.
         </p>
       </div>
 
       <div className="rule-list">
         {activeRules.length === 0 ? <div className="empty-state">No rules yet for this tab.</div> : null}
-        {renderRuleRows(activeTab, activeRules, onChangeRules)}
+        {activeRules.length > 0 && filteredRules.length === 0 ? <div className="empty-state">No rules match this search.</div> : null}
+        {filteredRules.map((rule) => {
+          const index = activeRules.findIndex((candidate) => candidate.id === rule.id);
+          const currentTokens = normalisePatternTokens(rule.pattern);
+          const typedQuery = rule.pattern.trim().toLowerCase();
+          const matchingSuggestions = showSuggestions
+            ? suggestionTokens
+                .filter((token) => {
+                  const tokenLower = token.toLowerCase();
+                  return typedQuery.length > 1 && tokenLower.includes(typedQuery) && !currentTokens.includes(token);
+                })
+                .slice(0, 6)
+            : [];
+
+          return (
+            <article className="rule-card" key={rule.id}>
+              <div className="rule-grid">
+                <label className="rule-grid__field">
+                  <span>Field</span>
+                  <select
+                    value={rule.field}
+                    onChange={(event) =>
+                      onChangeRules(
+                        activeTab,
+                        updateRule(activeRules, rule.id, {
+                          field: event.target.value as RuleDraft["field"],
+                          caseInsensitive: getNextCaseInsensitiveValue(rule, event.target.value as RuleDraft["field"])
+                        })
+                      )
+                    }
+                  >
+                    {RULE_FIELDS.map((field) => (
+                      <option key={field} value={field}>
+                        {field}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="rule-grid__pattern">
+                  <span>Pattern</span>
+                  <textarea
+                    value={rule.pattern}
+                    rows={3}
+                    onChange={(event) => onChangeRules(activeTab, updateRule(activeRules, rule.id, { pattern: event.target.value }))}
+                  />
+                  {supportsCaseInsensitiveMatching(rule.field) ? (
+                    <div className="rule-option">
+                      <input
+                        type="checkbox"
+                        checked={rule.caseInsensitive}
+                        onChange={(event) => onChangeRules(activeTab, updateRule(activeRules, rule.id, { caseInsensitive: event.target.checked }))}
+                      />
+                      <span>Add `(?i)` for case-insensitive matching</span>
+                    </div>
+                  ) : (
+                    <p className="rule-note">Date rules use Miniflux date syntax, not regex matching flags.</p>
+                  )}
+
+                  {matchingSuggestions.length > 0 ? (
+                    <div className="rule-suggestions">
+                      <span>Quick append suggestions</span>
+                      <div className="rule-suggestions__list">
+                        {matchingSuggestions.map((token) => (
+                          <button
+                            key={`${rule.id}-${token}`}
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => onChangeRules(activeTab, updateRule(activeRules, rule.id, { pattern: appendPatternWithPipe(rule.pattern, token) }))}
+                          >
+                            Add |{token}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </label>
+
+                <div className="rule-actions">
+                  <button type="button" onClick={() => onChangeRules(activeTab, moveRule(activeRules, index, -1))}>Up</button>
+                  <button type="button" onClick={() => onChangeRules(activeTab, moveRule(activeRules, index, 1))}>Down</button>
+                  <button type="button" className="danger" onClick={() => onChangeRules(activeTab, removeRule(activeRules, rule.id))}>Remove</button>
+                  <button type="button" onClick={() => onChangeRules(activeTab, cloneRule(activeRules, rule, index))}>Clone</button>
+                </div>
+              </div>
+            </article>
+          );
+        })}
       </div>
 
       <div className="rule-toolbar">
         <div className="rule-toolbar__group">
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => onChangeRules(activeTab, [...activeRules, createRuleDraft()])}
-          >
-            Add rule
-          </button>
+          <button type="button" className="ghost-button" onClick={() => onChangeRules(activeTab, [...activeRules, createRuleDraft()])}>Add rule</button>
           <span className="pill">{activeRules.length} rules</span>
         </div>
-        <button type="button" className="primary-button" onClick={() => void onSave()} disabled={!dirty || saving}>
-          {saving ? "Saving…" : "Save to Miniflux"}
-        </button>
+        <button type="button" className="primary-button" onClick={() => void onSave()} disabled={!dirty || saving}>{saving ? "Saving…" : "Save to Miniflux"}</button>
       </div>
 
       <div className="compiled-panel">
