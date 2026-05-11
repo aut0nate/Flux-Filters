@@ -6,6 +6,7 @@ import {
   type MinifluxFeed,
   type RuleDraft
 } from "../../shared/miniflux";
+import { useRef } from "react";
 
 type RuleTab = "block" | "allow";
 
@@ -100,6 +101,7 @@ function renderRuleRows(
   return rules.map((rule, index) => (
     <article className="rule-card" key={rule.id}>
       <div className="rule-grid">
+        <p className="rule-index">#{index + 1}</p>
         <label className="rule-grid__field">
           <span>Field</span>
           <select
@@ -193,6 +195,11 @@ export default function RuleEditor({
   const activeRules = activeTab === "block" ? blockRules : allowRules;
   const compiledRules = compileRuleText(activeRules);
   const warnings = getRuleWarnings(activeRules);
+  const ruleToolbarRef = useRef<HTMLDivElement | null>(null);
+
+  function handleJumpToBottom() {
+    ruleToolbarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
     <section className="editor-panel">
@@ -204,6 +211,9 @@ export default function RuleEditor({
         </div>
 
         <div className="editor-header__actions">
+          <button type="button" className="ghost-button" onClick={handleJumpToBottom}>
+            Jump to bottom
+          </button>
           <button type="button" className="ghost-button" onClick={onReset} disabled={!dirty || saving}>
             Reset
           </button>
@@ -250,7 +260,7 @@ export default function RuleEditor({
         {renderRuleRows(activeTab, activeRules, onChangeRules)}
       </div>
 
-      <div className="rule-toolbar">
+      <div className="rule-toolbar" ref={ruleToolbarRef}>
         <div className="rule-toolbar__group">
           <button
             type="button"

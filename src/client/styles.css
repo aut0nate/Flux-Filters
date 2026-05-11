@@ -552,6 +552,7 @@ a {
   display: grid;
   grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr);
   grid-template-areas:
+    "index index"
     "field pattern"
     "actions actions";
   gap: 0.9rem;
@@ -562,6 +563,14 @@ a {
   display: grid;
   gap: 0.65rem;
   min-width: 0;
+}
+
+.rule-index {
+  grid-area: index;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--muted);
 }
 
 .rule-grid__field {
@@ -700,6 +709,7 @@ select,
   .rule-grid {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
+      "index"
       "field"
       "pattern"
       "actions";
