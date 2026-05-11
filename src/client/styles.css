@@ -529,28 +529,6 @@ a {
   font-size: 0.9rem;
 }
 
-.rule-suggestions {
-  margin-top: 0.4rem;
-  display: grid;
-  gap: 0.5rem;
-}
-
-.rule-suggestions span {
-  color: var(--muted);
-  font-size: 0.88rem;
-}
-
-.rule-suggestions__list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.pipe-separator {
-  font-family: "SFMono-Regular", "Menlo", monospace;
-  font-weight: 700;
-  padding: 0 0.1rem;
-}
 .info-panel,
 .compiled-panel,
 .empty-state,
@@ -682,6 +660,20 @@ a {
   color: var(--danger-text);
   display: grid;
   gap: 0.35rem;
+}
+
+.rule-warnings li {
+  line-height: 1.45;
+}
+
+.rule-warnings button {
+  margin-left: 0.45rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--link);
+  cursor: pointer;
+  text-decoration: underline;
 }
 
 .empty-state,

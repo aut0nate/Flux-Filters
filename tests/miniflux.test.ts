@@ -48,8 +48,20 @@ describe("Miniflux rule helpers", () => {
     );
 
     expect(compiled).toBe(
-      ["EntryTitle=(?i)Delta", "EntryContent=(?i)newsletter=form"].join("\n")
+      ["EntryTitle=(?i)\\b(Delta)\\b", "EntryContent=(?i)\\b(newsletter=form)\\b"].join("\n")
     );
+  });
+
+  it("wraps text rule patterns in word boundaries when compiling", () => {
+    const compiled = compileRuleText([createRuleDraft("EntryTitle", "Prime Day")]);
+
+    expect(compiled).toBe("EntryTitle=(?i)\\b(Prime Day)\\b");
+  });
+
+  it("does not double-wrap word-boundary patterns when compiling", () => {
+    const compiled = compileRuleText([createRuleDraft("EntryTitle", "\\b(Prime Day)\\b")]);
+
+    expect(compiled).toBe("EntryTitle=(?i)\\b(Prime Day)\\b");
   });
 
   it("counts rules based on valid entries only", () => {
@@ -75,7 +87,7 @@ describe("Miniflux rule helpers", () => {
       createRuleDraft("EntryTitle", "Weekly Digest", false)
     ]);
 
-    expect(compiled).toBe(["EntryDate=after:2026-04-01", "EntryTitle=Weekly Digest"].join("\n"));
+    expect(compiled).toBe(["EntryDate=after:2026-04-01", "EntryTitle=\\b(Weekly Digest)\\b"].join("\n"));
     expect(supportsCaseInsensitiveMatching("EntryDate")).toBe(false);
   });
 });
