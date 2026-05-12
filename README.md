@@ -83,15 +83,24 @@ Environment notes:
 
 ## Test Locally Using Docker
 
-Use Docker locally when you want to test the application before deploying to your server. Start by building the image:
+Docker is useful for checking the production container before server deployment. The local Compose file builds the image from this repository, reads `.env`, publishes the app on `127.0.0.1:3000`.
 
-1. Build and start the local container:
+1. Start the local Docker stack:
 
-   ```bash
-   docker compose up --build
-   ```
+    ```bash
+    docker compose up --build
+    ```
 
-2. Open [http://localhost:3000](http://localhost:3000).
+    The app will be available at `http://127.0.0.1:3001`.
+
+2. Stop the stack:
+
+    ```bash
+    docker compose down
+    ```
+
+>[!Note]
+The local Compose file is `docker-compose.yml`. The production source Compose file is `docker-compose.prod.yaml`.
 
 Notes:
 
@@ -148,7 +157,6 @@ After deployment, verify:
 ## AI-Assisted Development
 
 Flux Filters was built with **OpenAI Codex using GPT-5.4**. This repository includes an [`AGENTS.md`](./AGENTS.md) file, which provides structured instructions and context for AI coding agents. It defines expectations, constraints, and project-specific guidance to help keep contributions consistent and reliable.
-
 
 
 ## Contributions
