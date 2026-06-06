@@ -75,11 +75,19 @@ body,
 #root {
   min-height: 100%;
   margin: 0;
+  max-width: 100%;
+}
+
+html {
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   min-height: 100vh;
+  min-height: 100dvh;
   background: transparent;
+  overflow-x: hidden;
 }
 
 button,
@@ -260,7 +268,8 @@ a {
 .app-shell {
   width: min(100%, 118rem);
   margin: 0 auto;
-  padding: 1.5rem 1.75rem 2rem;
+  padding: 1.5rem max(1.75rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom))
+    max(1.75rem, env(safe-area-inset-left));
   display: grid;
   gap: 1.25rem;
 }
@@ -380,6 +389,7 @@ a {
   gap: 0.8rem;
   max-height: 28rem;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
   padding-right: 0.2rem;
 }
 
@@ -721,6 +731,7 @@ a {
   gap: 0.75rem;
   max-height: calc(72vh - 9rem);
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
   padding-right: 0.2rem;
 }
 
@@ -1280,6 +1291,51 @@ select,
   .failed-feeds-panel,
   .empty-state {
     border-radius: 1rem;
+  }
+
+  .app-shell,
+  .login-shell {
+    padding-right: max(1rem, env(safe-area-inset-right));
+    padding-left: max(1rem, env(safe-area-inset-left));
+  }
+
+  .app-header,
+  .review-panel,
+  .editor-panel,
+  .sidebar,
+  .summary-strip,
+  .failed-feeds-panel {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .starred-list,
+  .feed-list {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .selection-action {
+    align-items: stretch;
+  }
+
+  .selection-action span,
+  .selection-action button {
+    flex: 1 1 100%;
+  }
+
+  .compact-button,
+  .pill,
+  .ghost-button,
+  .primary-button {
+    white-space: normal;
+  }
+
+  .starred-card__actions .ghost-button,
+  .failed-feed-card__actions .ghost-button {
+    flex: 1 1 100%;
   }
 
   .rule-grid textarea,
