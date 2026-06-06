@@ -1290,25 +1290,19 @@ select,
   }
 
   .app-header__actions {
-    align-items: center;
+    align-items: stretch;
+    flex-wrap: wrap;
     gap: 0.6rem;
-    margin: 0 -1rem;
-    overflow-x: auto;
-    padding: 0 1rem 0.15rem;
-    overscroll-behavior-inline: contain;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .app-header__actions::-webkit-scrollbar {
-    display: none;
+    justify-content: flex-start;
   }
 
   .app-header__actions > * {
-    flex: 0 0 auto;
+    flex: 1 1 8.5rem;
+    min-width: 0;
   }
 
   .app-header__actions .theme-toggle {
+    flex: 0 0 auto;
     width: auto;
   }
 
