@@ -25,7 +25,7 @@ export default function FeedSidebar({
       <div className="sidebar__top">
         <div className="sidebar__heading">
           <div>
-            <p className="eyebrow">Feed dashboard</p>
+            <p className="eyebrow">Feed Dashboard</p>
             <h2>Feeds</h2>
           </div>
           <span className="pill sidebar__count">{feeds.length}</span>
@@ -35,7 +35,7 @@ export default function FeedSidebar({
           <input
             className="search-input"
             type="search"
-            placeholder="Search feeds"
+            placeholder="Search Feeds"
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
           />

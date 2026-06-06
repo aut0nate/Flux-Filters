@@ -1,4 +1,4 @@
-import type { MinifluxFeed, MinifluxUser } from "../shared/miniflux";
+import type { MinifluxEntriesResponse, MinifluxFeed, MinifluxUser } from "../shared/miniflux";
 
 export interface ClientSession {
   serverUrl: string;
@@ -75,6 +75,51 @@ export async function fetchFeed(session: ClientSession, feedId: number): Promise
   });
 
   return parseResponse<MinifluxFeed>(response);
+}
+
+export async function refreshAllFeeds(session: ClientSession): Promise<void> {
+  const response = await fetch("/api/feeds/refresh", {
+    method: "PUT",
+    headers: withSessionHeaders(session)
+  });
+
+  if (!response.ok) {
+    await parseResponse<unknown>(response);
+  }
+}
+
+export async function refreshFeed(session: ClientSession, feedId: number): Promise<void> {
+  const response = await fetch(`/api/feeds/${feedId}/refresh`, {
+    method: "PUT",
+    headers: withSessionHeaders(session)
+  });
+
+  if (!response.ok) {
+    await parseResponse<unknown>(response);
+  }
+}
+
+export async function fetchStarredEntries(
+  session: ClientSession,
+  limit = 50
+): Promise<MinifluxEntriesResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const response = await fetch(`/api/entries/starred?${params.toString()}`, {
+    headers: withSessionHeaders(session)
+  });
+
+  return parseResponse<MinifluxEntriesResponse>(response);
+}
+
+export async function toggleEntryBookmark(session: ClientSession, entryId: number): Promise<void> {
+  const response = await fetch(`/api/entries/${entryId}/bookmark`, {
+    method: "PUT",
+    headers: withSessionHeaders(session)
+  });
+
+  if (!response.ok) {
+    await parseResponse<unknown>(response);
+  }
 }
 
 export async function saveFeedRules(

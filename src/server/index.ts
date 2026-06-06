@@ -2,7 +2,11 @@ import "dotenv/config";
 import express from "express";
 import path from "node:path";
 
-import type { MinifluxFeed, MinifluxUser } from "../shared/miniflux.js";
+import type {
+  MinifluxEntriesResponse,
+  MinifluxFeed,
+  MinifluxUser
+} from "../shared/miniflux.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -204,6 +208,76 @@ app.get("/api/feeds/:feedId", async (request, response) => {
 
     const feed = await minifluxRequest<MinifluxFeed>(session, `/v1/feeds/${feedId}`);
     response.json(feed);
+  } catch (error) {
+    sendError(response, error);
+  }
+});
+
+app.put("/api/feeds/refresh", async (request, response) => {
+  try {
+    const session = getSessionFromHeaders(request);
+    await minifluxRequest<void>(session, "/v1/feeds/refresh", { method: "PUT" });
+    response.status(204).send();
+  } catch (error) {
+    sendError(response, error);
+  }
+});
+
+app.put("/api/feeds/:feedId/refresh", async (request, response) => {
+  try {
+    const session = getSessionFromHeaders(request);
+    const feedId = Number(request.params.feedId);
+
+    if (!Number.isInteger(feedId)) {
+      throw new Error("Invalid feed id.");
+    }
+
+    await minifluxRequest<void>(session, `/v1/feeds/${feedId}/refresh`, { method: "PUT" });
+    response.status(204).send();
+  } catch (error) {
+    sendError(response, error);
+  }
+});
+
+app.get("/api/entries/starred", async (request, response) => {
+  try {
+    const session = getSessionFromHeaders(request);
+    const requestedLimit = Number(request.query.limit ?? 50);
+    const limit = Number.isInteger(requestedLimit)
+      ? Math.min(Math.max(requestedLimit, 1), 100)
+      : 50;
+    const params = new URLSearchParams({
+      starred: "true",
+      limit: String(limit),
+      order: "published_at",
+      direction: "desc"
+    });
+
+    const entries = await minifluxRequest<MinifluxEntriesResponse>(
+      session,
+      `/v1/entries?${params.toString()}`
+    );
+
+    response.json(entries);
+  } catch (error) {
+    sendError(response, error);
+  }
+});
+
+app.put("/api/entries/:entryId/bookmark", async (request, response) => {
+  try {
+    const session = getSessionFromHeaders(request);
+    const entryId = Number(request.params.entryId);
+
+    if (!Number.isInteger(entryId)) {
+      throw new Error("Invalid entry id.");
+    }
+
+    await minifluxRequest<void>(session, `/v1/entries/${entryId}/bookmark`, {
+      method: "PUT"
+    });
+
+    response.status(204).send();
   } catch (error) {
     sendError(response, error);
   }

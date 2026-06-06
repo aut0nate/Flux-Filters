@@ -1,16 +1,22 @@
-import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ApiError,
   fetchFeed,
   fetchFeeds,
+  fetchStarredEntries,
+  refreshAllFeeds,
+  refreshFeed,
   saveFeedRules,
   testConnection,
+  toggleEntryBookmark,
   type ClientSession
 } from "./api";
 import FeedSidebar from "./components/FeedSidebar";
+import FailedFeedsPage from "./components/FailedFeedsPage";
 import LoginScreen from "./components/LoginScreen";
 import RuleEditor from "./components/RuleEditor";
+import StarredQueue from "./components/StarredQueue";
 import SummaryCards from "./components/SummaryCards";
 import ThemeToggle from "./components/ThemeToggle";
 import {
@@ -18,8 +24,10 @@ import {
   countRules,
   getFeedAllowRules,
   getFeedBlockRules,
+  hasFeedFailure,
   hasEntryFilterRules,
   parseRuleText,
+  type MinifluxEntry,
   type MinifluxFeed,
   type RuleDraft
 } from "../shared/miniflux";
@@ -37,11 +45,17 @@ interface DraftState {
   allowRules: RuleDraft[];
 }
 
+interface PendingSuggestedRule {
+  feedId: number;
+  rules: RuleDraft[];
+}
+
 const SESSION_STORAGE_KEY = "flux-filters-session";
 const LEGACY_SESSION_STORAGE_KEY = "flux-filters-session-storage";
 const THEME_STORAGE_KEY = "flux-filters-theme";
 
 type ThemeMode = "dark" | "light";
+type AppView = "dashboard" | "feed" | "failed-feeds";
 
 function readSavedSession(): SavedSession | null {
   const raw =
@@ -99,17 +113,91 @@ function createDraftStateFromRuleText(
   };
 }
 
+function scrollToRule(ruleId: string) {
+  window.setTimeout(() => {
+    document.getElementById(`rule-${ruleId}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center"
+    });
+  }, 80);
+}
+
+function scrollToStarredEntry(entryId: number) {
+  const targetId = `starred-entry-${entryId}`;
+  let attempts = 0;
+
+  function scrollWhenReady() {
+    const target = document.getElementById(targetId);
+
+    if (!target) {
+      attempts += 1;
+
+      if (attempts < 12) {
+        window.setTimeout(scrollWhenReady, 80);
+      }
+
+      return;
+    }
+
+    const scrollParent = target.closest<HTMLElement>(".starred-list");
+
+    if (scrollParent) {
+      const parentRect = scrollParent.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const targetOffset =
+        scrollParent.scrollTop +
+        targetRect.top -
+        parentRect.top -
+        scrollParent.clientHeight / 2 +
+        targetRect.height / 2;
+
+      scrollParent.scrollTo({
+        behavior: "smooth",
+        top: Math.max(0, targetOffset)
+      });
+
+      scrollParent.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+      });
+      return;
+    }
+
+    target.scrollIntoView({
+      behavior: "smooth",
+      block: "center"
+    });
+  }
+
+  window.setTimeout(scrollWhenReady, 80);
+}
+
+function scrollToPageTop() {
+  window.scrollTo({
+    behavior: "smooth",
+    top: 0
+  });
+}
+
 export default function App() {
   const [session, setSession] = useState<SavedSession | null>(() => readSavedSession());
   const [theme, setTheme] = useState<ThemeMode>(() => readSavedTheme());
   const [feeds, setFeeds] = useState<MinifluxFeed[]>([]);
+  const [starredEntries, setStarredEntries] = useState<MinifluxEntry[]>([]);
+  const [starredTotal, setStarredTotal] = useState(0);
   const [selectedFeedId, setSelectedFeedId] = useState<number | null>(null);
+  const [appView, setAppView] = useState<AppView>("dashboard");
   const [draftState, setDraftState] = useState<DraftState>(() => createDraftState(null));
+  const [pendingSuggestedRule, setPendingSuggestedRule] = useState<PendingSuggestedRule | null>(null);
+  const returnToStarredEntryId = useRef<number | null>(null);
   const [activeTab, setActiveTab] = useState<RuleTab>("block");
   const [loadingSession, setLoadingSession] = useState(false);
   const [loadingFeeds, setLoadingFeeds] = useState(false);
+  const [loadingStarred, setLoadingStarred] = useState(false);
   const [loadingSelectedFeed, setLoadingSelectedFeed] = useState(false);
   const [sessionError, setSessionError] = useState("");
+  const [starredError, setStarredError] = useState("");
+  const [failedFeedsMessage, setFailedFeedsMessage] = useState("");
   const [saveError, setSaveError] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [saving, setSaving] = useState(false);
@@ -173,6 +261,43 @@ export default function App() {
     };
   }, [session]);
 
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadStarredEntries() {
+      setLoadingStarred(true);
+      setStarredError("");
+
+      try {
+        const response = await fetchStarredEntries(session);
+        if (cancelled) {
+          return;
+        }
+
+        setStarredEntries(response.entries);
+        setStarredTotal(response.total);
+      } catch (error) {
+        if (!cancelled) {
+          setStarredError(error instanceof Error ? error.message : "Unable to load starred entries.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingStarred(false);
+        }
+      }
+    }
+
+    void loadStarredEntries();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
   const selectedFeed = feeds.find((feed) => feed.id === selectedFeedId) ?? null;
   const selectedFeedIdForDraft = selectedFeed?.id ?? null;
   const selectedFeedBlockRules = selectedFeed ? getFeedBlockRules(selectedFeed) : "";
@@ -192,6 +317,29 @@ export default function App() {
     setSaveError("");
     setSaveMessage("");
   }, [selectedFeedDraftState]);
+
+  useEffect(() => {
+    if (pendingSuggestedRule && pendingSuggestedRule.feedId === selectedFeedDraftState.feedId) {
+      if (loadingSelectedFeed) {
+        return;
+      }
+
+      setDraftState({
+        ...selectedFeedDraftState,
+        blockRules: [...selectedFeedDraftState.blockRules, ...pendingSuggestedRule.rules]
+      });
+      setActiveTab("block");
+      setSaveError("");
+      setSaveMessage(
+        pendingSuggestedRule.rules.length === 1
+          ? "Suggested rule added. Review it, then save to Miniflux."
+          : "Suggested rules added. Review them, then save to Miniflux."
+      );
+      scrollToRule(pendingSuggestedRule.rules[pendingSuggestedRule.rules.length - 1].id);
+      setPendingSuggestedRule(null);
+      return;
+    }
+  }, [loadingSelectedFeed, pendingSuggestedRule, selectedFeedDraftState]);
 
   useEffect(() => {
     if (!session || !selectedFeedId) {
@@ -257,6 +405,22 @@ export default function App() {
   const totalBlockRules = feeds.reduce((count, feed) => count + countRules(getFeedBlockRules(feed)), 0);
   const totalAllowRules = feeds.reduce((count, feed) => count + countRules(getFeedAllowRules(feed)), 0);
   const feedsWithRules = feeds.filter((feed) => hasEntryFilterRules(feed)).length;
+  const failedFeeds = useMemo(
+    () =>
+      feeds
+        .filter(hasFeedFailure)
+        .sort((left, right) => {
+          const errorDifference =
+            (right.parsing_error_count ?? 0) - (left.parsing_error_count ?? 0);
+
+          if (errorDifference !== 0) {
+            return errorDifference;
+          }
+
+          return left.title.localeCompare(right.title, "en-GB", { sensitivity: "base" });
+        }),
+    [feeds]
+  );
 
   async function handleLogin(payload: ClientSession) {
     setLoadingSession(true);
@@ -284,8 +448,12 @@ export default function App() {
     writeSavedSession(null);
     setSession(null);
     setFeeds([]);
+    setStarredEntries([]);
+    setStarredTotal(0);
     setSelectedFeedId(null);
     setSessionError("");
+    setStarredError("");
+    returnToStarredEntryId.current = null;
   }
 
   function handleChangeRules(tab: RuleTab, rules: RuleDraft[]) {
@@ -302,6 +470,112 @@ export default function App() {
     setDraftState(createDraftState(selectedFeed));
     setSaveError("");
     setSaveMessage("");
+  }
+
+  function handleSelectFeed(feedId: number) {
+    returnToStarredEntryId.current = null;
+    setSelectedFeedId(feedId);
+    setAppView("feed");
+    scrollToPageTop();
+  }
+
+  function handleShowDashboard() {
+    setAppView("dashboard");
+    setSaveError("");
+    setSaveMessage("");
+    setFailedFeedsMessage("");
+    scrollToPageTop();
+  }
+
+  function handleShowFailedFeeds() {
+    returnToStarredEntryId.current = null;
+    setAppView("failed-feeds");
+    setSaveError("");
+    setSaveMessage("");
+    setFailedFeedsMessage("");
+    scrollToPageTop();
+  }
+
+  function handleBackToDashboard() {
+    const targetEntryId = returnToStarredEntryId.current;
+
+    setAppView("dashboard");
+    setSaveError("");
+    setSaveMessage("");
+    returnToStarredEntryId.current = null;
+
+    if (targetEntryId) {
+      scrollToStarredEntry(targetEntryId);
+      return;
+    }
+
+    scrollToPageTop();
+  }
+
+  async function handleRefreshFeeds(triggerUpstreamRefresh = false) {
+    if (!session) {
+      return;
+    }
+
+    setLoadingFeeds(true);
+    setSessionError("");
+
+    try {
+      if (triggerUpstreamRefresh) {
+        await refreshAllFeeds(session);
+      }
+
+      const nextFeeds = await fetchFeeds(session);
+      setFeeds(nextFeeds);
+    } catch (error) {
+      setSessionError(error instanceof Error ? error.message : "Unable to refresh feeds.");
+    } finally {
+      setLoadingFeeds(false);
+    }
+  }
+
+  async function handleRefreshFailedFeeds() {
+    if (!session || failedFeeds.length === 0) {
+      return;
+    }
+
+    const failedFeedIds = new Set(failedFeeds.map((feed) => feed.id));
+
+    setLoadingFeeds(true);
+    setSessionError("");
+    setFailedFeedsMessage("");
+
+    try {
+      const results = await Promise.allSettled(
+        failedFeeds.map((feed) => refreshFeed(session, feed.id))
+      );
+      const requestFailures = results.filter((result) => result.status === "rejected").length;
+      const nextFeeds = await fetchFeeds(session);
+      const nextFailedFeeds = nextFeeds.filter(hasFeedFailure);
+      const stillFailingIds = new Set(nextFailedFeeds.map((feed) => feed.id));
+      const recoveredCount = [...failedFeedIds].filter((feedId) => !stillFailingIds.has(feedId)).length;
+      const stillFailingCount = [...failedFeedIds].filter((feedId) =>
+        stillFailingIds.has(feedId)
+      ).length;
+
+      setFeeds(nextFeeds);
+      setFailedFeedsMessage(
+        [
+          `Retried ${failedFeedIds.size} failed ${failedFeedIds.size === 1 ? "feed" : "feeds"}.`,
+          `${recoveredCount} recovered.`,
+          `${stillFailingCount} still failing.`,
+          requestFailures > 0
+            ? `${requestFailures} refresh ${requestFailures === 1 ? "request" : "requests"} failed.`
+            : ""
+        ]
+          .filter(Boolean)
+          .join(" ")
+      );
+    } catch (error) {
+      setSessionError(error instanceof Error ? error.message : "Unable to refresh failed feeds.");
+    } finally {
+      setLoadingFeeds(false);
+    }
   }
 
   async function handleSave() {
@@ -330,6 +604,75 @@ export default function App() {
     }
   }
 
+  async function handleRefreshStarred() {
+    if (!session) {
+      return;
+    }
+
+    setLoadingStarred(true);
+    setStarredError("");
+
+    try {
+      const response = await fetchStarredEntries(session);
+      setStarredEntries(response.entries);
+      setStarredTotal(response.total);
+    } catch (error) {
+      setStarredError(error instanceof Error ? error.message : "Unable to refresh starred entries.");
+    } finally {
+      setLoadingStarred(false);
+    }
+  }
+
+  function handleAddSuggestedRule(entry: MinifluxEntry, rule: RuleDraft) {
+    handleAddSuggestedRules(entry, [rule]);
+  }
+
+  function handleAddSuggestedRules(entry: MinifluxEntry, rules: RuleDraft[]) {
+    if (rules.length === 0) {
+      return;
+    }
+
+    returnToStarredEntryId.current = entry.id;
+    setAppView("feed");
+
+    if (selectedFeedId === entry.feed_id && draftState.feedId === entry.feed_id && !loadingSelectedFeed) {
+      setDraftState((current) => ({
+        ...current,
+        blockRules: [...current.blockRules, ...rules]
+      }));
+      setActiveTab("block");
+      setSaveError("");
+      setSaveMessage(
+        rules.length === 1
+          ? "Suggested rule added. Review it, then save to Miniflux."
+          : "Suggested rules added. Review them, then save to Miniflux."
+      );
+      scrollToRule(rules[rules.length - 1].id);
+      return;
+    }
+
+    if (selectedFeedId !== entry.feed_id) {
+      setLoadingSelectedFeed(true);
+    }
+
+    setSelectedFeedId(entry.feed_id);
+    setPendingSuggestedRule({ feedId: entry.feed_id, rules });
+  }
+
+  async function handleUnstarEntry(entry: MinifluxEntry) {
+    if (!session) {
+      return;
+    }
+
+    try {
+      await toggleEntryBookmark(session, entry.id);
+      setStarredEntries((current) => current.filter((candidate) => candidate.id !== entry.id));
+      setStarredTotal((current) => Math.max(current - 1, 0));
+    } catch (error) {
+      setStarredError(error instanceof Error ? error.message : "Unable to unstar entry.");
+    }
+  }
+
   if (!session) {
     return (
       <LoginScreen
@@ -346,8 +689,11 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <div>
-          <h1>Minflux Filters</h1>
+        <div className="app-header__brand">
+          <div className="brand-mark app-header__brand-mark" aria-hidden="true">
+            m
+          </div>
+          <h1>Flux Filters</h1>
           <p className="subtle">
             Signed in as <strong>{session.username}</strong> to {session.serverUrl} on Miniflux{" "}
             {session.version}.
@@ -359,15 +705,14 @@ export default function App() {
           <button
             type="button"
             className="ghost-button"
-            onClick={() => {
-              setLoadingFeeds(true);
-              void fetchFeeds(session)
-                .then((nextFeeds) => setFeeds(nextFeeds))
-                .catch((error) =>
-                  setSessionError(error instanceof Error ? error.message : "Unable to refresh feeds.")
-                )
-                .finally(() => setLoadingFeeds(false));
-            }}
+            onClick={handleShowFailedFeeds}
+          >
+            Failed Feeds ({failedFeeds.length})
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => void handleRefreshFeeds()}
             disabled={loadingFeeds}
           >
             {loadingFeeds ? "Refreshing…" : "Refresh"}
@@ -378,55 +723,88 @@ export default function App() {
         </div>
       </header>
 
-      <SummaryCards
-        totalFeeds={feeds.length}
-        feedsWithRules={feedsWithRules}
-        totalBlockRules={totalBlockRules}
-        totalAllowRules={totalAllowRules}
-      />
-
       {sessionError ? <div className="form-error">{sessionError}</div> : null}
 
-      <main className="workspace">
-        <FeedSidebar
-          feeds={filteredFeeds}
-          selectedFeedId={selectedFeedId}
-          search={search}
-          onSearchChange={setSearch}
-          onlyWithRules={onlyWithRules}
-          onOnlyWithRulesChange={setOnlyWithRules}
-          onSelectFeed={setSelectedFeedId}
-        />
+      {appView === "dashboard" ? (
+        <>
+          <SummaryCards
+            totalFeeds={feeds.length}
+            feedsWithRules={feedsWithRules}
+            failedFeeds={failedFeeds.length}
+            totalBlockRules={totalBlockRules}
+            totalAllowRules={totalAllowRules}
+            onShowFailedFeeds={handleShowFailedFeeds}
+          />
 
-        <section className="workspace__content">
-          {loadingFeeds ? <div className="empty-state">Loading feeds…</div> : null}
+          <StarredQueue
+            entries={starredEntries}
+            total={starredTotal}
+            loading={loadingStarred}
+            error={starredError}
+            minifluxServerUrl={session.serverUrl}
+            onRefresh={handleRefreshStarred}
+            onAddRule={handleAddSuggestedRule}
+            onAddRules={handleAddSuggestedRules}
+            onUnstar={handleUnstarEntry}
+          />
 
-          {!loadingFeeds && loadingSelectedFeed ? (
-            <div className="empty-state">Loading feed rules…</div>
-          ) : null}
-
-          {!loadingFeeds && !loadingSelectedFeed && selectedFeed ? (
-            <RuleEditor
-              feed={selectedFeed}
-              activeTab={activeTab}
-              onTabChange={setActiveTab}
-              blockRules={draftState.blockRules}
-              allowRules={draftState.allowRules}
-              onChangeRules={handleChangeRules}
-              onSave={handleSave}
-              onReset={handleReset}
-              saving={saving}
-              dirty={dirty}
-              saveError={saveError}
-              saveMessage={saveMessage}
+          <main className="workspace workspace--dashboard">
+            <FeedSidebar
+              feeds={filteredFeeds}
+              selectedFeedId={selectedFeedId}
+              search={search}
+              onSearchChange={setSearch}
+              onlyWithRules={onlyWithRules}
+              onOnlyWithRulesChange={setOnlyWithRules}
+              onSelectFeed={handleSelectFeed}
             />
-          ) : null}
+          </main>
+        </>
+      ) : appView === "failed-feeds" ? (
+        <main className="workspace workspace--dashboard">
+          <FailedFeedsPage
+            feeds={failedFeeds}
+            minifluxServerUrl={session.serverUrl}
+            loading={loadingFeeds}
+            refreshMessage={failedFeedsMessage}
+            onBack={handleShowDashboard}
+            onRefreshFeeds={() => void handleRefreshFailedFeeds()}
+            onSelectFeed={handleSelectFeed}
+          />
+        </main>
+      ) : (
+        <main className="workspace workspace--feed">
+          <section className="workspace__content">
+            {loadingFeeds ? <div className="empty-state">Loading feeds…</div> : null}
 
-          {!loadingFeeds && !selectedFeed ? (
-            <div className="empty-state">Select a feed to inspect its rules.</div>
-          ) : null}
-        </section>
-      </main>
+            {!loadingFeeds && loadingSelectedFeed ? (
+              <div className="empty-state">Loading feed rules…</div>
+            ) : null}
+
+            {!loadingFeeds && !loadingSelectedFeed && selectedFeed ? (
+              <RuleEditor
+                feed={selectedFeed}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                blockRules={draftState.blockRules}
+                allowRules={draftState.allowRules}
+                onChangeRules={handleChangeRules}
+                onSave={handleSave}
+                onReset={handleReset}
+                onBack={handleBackToDashboard}
+                saving={saving}
+                dirty={dirty}
+                saveError={saveError}
+                saveMessage={saveMessage}
+              />
+            ) : null}
+
+            {!loadingFeeds && !selectedFeed ? (
+              <div className="empty-state">Select a feed to inspect its rules.</div>
+            ) : null}
+          </section>
+        </main>
+      )}
     </div>
   );
 }
