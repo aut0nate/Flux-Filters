@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   createRuleDraftFromText,
@@ -8,6 +8,8 @@ import {
 } from "../../shared/miniflux";
 
 type SelectableRuleField = Extract<RuleField, "EntryTitle" | "EntryContent" | "EntryURL">;
+
+const SELECTABLE_RULE_TEXT_SELECTOR = "[data-rule-selection-field]";
 
 interface StarredQueueProps {
   entries: MinifluxEntry[];
@@ -71,6 +73,39 @@ function getSelectedTextInside(element: HTMLElement): string {
   }
 
   return selection.toString().replace(/\s+/g, " ").trim();
+}
+
+function getSelectionSourceElement(root: HTMLElement): HTMLElement | null {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.anchorNode || !selection.focusNode) {
+    return null;
+  }
+
+  const anchorElement =
+    selection.anchorNode.nodeType === Node.ELEMENT_NODE
+      ? selection.anchorNode
+      : selection.anchorNode.parentElement;
+  const focusElement =
+    selection.focusNode.nodeType === Node.ELEMENT_NODE
+      ? selection.focusNode
+      : selection.focusNode.parentElement;
+
+  if (
+    !anchorElement ||
+    !focusElement ||
+    !root.contains(anchorElement) ||
+    !root.contains(focusElement)
+  ) {
+    return null;
+  }
+
+  const sourceElement = anchorElement.closest<HTMLElement>(SELECTABLE_RULE_TEXT_SELECTOR);
+
+  if (!sourceElement || !sourceElement.contains(focusElement)) {
+    return null;
+  }
+
+  return sourceElement;
 }
 
 function getEntryContentParagraphs(entry: MinifluxEntry): string[] {
@@ -166,16 +201,58 @@ export default function StarredQueue({
     text: string;
   } | null>(null);
   const [unstarringEntryId, setUnstarringEntryId] = useState<number | null>(null);
+  const reviewPanelRef = useRef<HTMLElement | null>(null);
 
-  function handleTextSelection(
-    entry: MinifluxEntry,
-    element: HTMLElement,
-    field: SelectableRuleField,
-    label: string
-  ) {
-    const nextText = getSelectedTextInside(element);
-    setSelectedRuleText(nextText ? { entryId: entry.id, field, label, text: nextText } : null);
+  const handleTextSelection = useCallback(
+    (entryId: number, element: HTMLElement, field: SelectableRuleField, label: string) => {
+      const nextText = getSelectedTextInside(element);
+      setSelectedRuleText(nextText ? { entryId, field, label, text: nextText } : null);
+    },
+    []
+  );
+
+  const handleCurrentSelection = useCallback(() => {
+    if (!reviewPanelRef.current) {
+      return;
+    }
+
+    const sourceElement = getSelectionSourceElement(reviewPanelRef.current);
+    if (!sourceElement) {
+      setSelectedRuleText(null);
+      return;
+    }
+
+    const entryId = Number(sourceElement.dataset.ruleSelectionEntryId);
+    const field = sourceElement.dataset.ruleSelectionField as SelectableRuleField | undefined;
+    const label = sourceElement.dataset.ruleSelectionLabel;
+
+    if (!entryId || !field || !label) {
+      setSelectedRuleText(null);
+      return;
+    }
+
+    handleTextSelection(entryId, sourceElement, field, label);
+  }, [handleTextSelection]);
+
+  function scheduleSelectionCheck() {
+    window.setTimeout(handleCurrentSelection, 0);
   }
+
+  useEffect(() => {
+    let selectionTimer = 0;
+
+    function handleSelectionChange() {
+      window.clearTimeout(selectionTimer);
+      selectionTimer = window.setTimeout(handleCurrentSelection, 80);
+    }
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+
+    return () => {
+      window.clearTimeout(selectionTimer);
+      document.removeEventListener("selectionchange", handleSelectionChange);
+    };
+  }, [handleCurrentSelection]);
 
   function handleAddSelectedRule(
     entry: MinifluxEntry,
@@ -215,7 +292,7 @@ export default function StarredQueue({
   }
 
   return (
-    <section className="review-panel" id="starred-review">
+    <section className="review-panel" id="starred-review" ref={reviewPanelRef}>
       <div className="review-panel__header">
         <div>
           <p className="eyebrow">Review Queue</p>
@@ -258,20 +335,11 @@ export default function StarredQueue({
                       {entry.published_at ? ` | ${formatEntryAge(entry.published_at)}` : ""}
                     </p>
                     <h3
-                      onMouseUp={(event) => {
-                        const titleElement = event.currentTarget;
-                        window.setTimeout(
-                          () => handleTextSelection(entry, titleElement, "EntryTitle", "title"),
-                          0
-                        );
-                      }}
-                      onTouchEnd={(event) => {
-                        const titleElement = event.currentTarget;
-                        window.setTimeout(
-                          () => handleTextSelection(entry, titleElement, "EntryTitle", "title"),
-                          0
-                        );
-                      }}
+                      data-rule-selection-entry-id={entry.id}
+                      data-rule-selection-field="EntryTitle"
+                      data-rule-selection-label="title"
+                      onMouseUp={scheduleSelectionCheck}
+                      onTouchEnd={scheduleSelectionCheck}
                     >
                       {entry.title}
                     </h3>
@@ -282,33 +350,12 @@ export default function StarredQueue({
                       {contentParagraphs.map((paragraph, index) => (
                         <p
                           className="selectable-text"
+                          data-rule-selection-entry-id={entry.id}
+                          data-rule-selection-field="EntryContent"
+                          data-rule-selection-label="description"
                           key={`${entry.id}-paragraph-${index}`}
-                          onMouseUp={(event) => {
-                            const paragraphElement = event.currentTarget;
-                            window.setTimeout(
-                              () =>
-                                handleTextSelection(
-                                  entry,
-                                  paragraphElement,
-                                  "EntryContent",
-                                  "description"
-                                ),
-                              0
-                            );
-                          }}
-                          onTouchEnd={(event) => {
-                            const paragraphElement = event.currentTarget;
-                            window.setTimeout(
-                              () =>
-                                handleTextSelection(
-                                  entry,
-                                  paragraphElement,
-                                  "EntryContent",
-                                  "description"
-                                ),
-                              0
-                            );
-                          }}
+                          onMouseUp={scheduleSelectionCheck}
+                          onTouchEnd={scheduleSelectionCheck}
                         >
                           {paragraph}
                         </p>
@@ -320,23 +367,14 @@ export default function StarredQueue({
                     <div className="starred-card__url">
                       <a
                         className="selectable-text"
+                        data-rule-selection-entry-id={entry.id}
+                        data-rule-selection-field="EntryURL"
+                        data-rule-selection-label="URL"
                         href={entry.url}
                         target="_blank"
                         rel="noreferrer"
-                        onMouseUp={(event) => {
-                          const urlElement = event.currentTarget;
-                          window.setTimeout(
-                            () => handleTextSelection(entry, urlElement, "EntryURL", "URL"),
-                            0
-                          );
-                        }}
-                        onTouchEnd={(event) => {
-                          const urlElement = event.currentTarget;
-                          window.setTimeout(
-                            () => handleTextSelection(entry, urlElement, "EntryURL", "URL"),
-                            0
-                          );
-                        }}
+                        onMouseUp={scheduleSelectionCheck}
+                        onTouchEnd={scheduleSelectionCheck}
                       >
                         {getDisplayUrl(entry.url)}
                       </a>
