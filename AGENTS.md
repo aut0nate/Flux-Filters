@@ -11,6 +11,8 @@ Flux Filters is a personal web app for managing Miniflux feed-level entry blocki
 
 This repository is intentionally focused on one job only: making Miniflux feed rules easier to inspect, add, edit, reorder, and remove.
 
+The first companion workflow uses starred Miniflux entries as a review queue for creating new feed-level rules from reading context.
+
 ## Tools, languages, and frameworks
 
 - React 18
@@ -48,6 +50,7 @@ The browser holds the Miniflux API token in session storage only. The Express se
 - Prefer small, focused functions over large multi-purpose utilities.
 - Keep user-facing text, comments, and documentation in British English.
 - Preserve Miniflux terminology where relevant, especially `blocklist_rules`, `keeplist_rules`, and the official field names.
+- Preserve the distinction between generated literal text rules and raw regex rules. Literal text should be escaped before saving; parsed Miniflux rules should remain regex unless the user changes them.
 - Avoid hidden behaviour that changes rule text automatically.
 
 ## Testing instructions
@@ -82,6 +85,7 @@ The browser holds the Miniflux API token in session storage only. The Express se
 
 - This app manages feed-level entry blocking and allow rules only for now.
 - It should read current rule text from Miniflux and write updated rule text back to Miniflux.
+- It may read starred Miniflux entries to help create draft rules, but starring remains owned by Miniflux.
 - It should not depend on the old YAML workflow.
 - It should not introduce a database.
 - The interface should make rule order visible because Miniflux stops on the first match.

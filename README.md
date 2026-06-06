@@ -11,7 +11,10 @@ It is for Miniflux users who want an easier way to manage regex filters without 
 ## Features
 
 - View feeds and see which ones already have rules
+- Review starred Miniflux entries as filter candidates
+- Create draft block rules from starred entry titles, authors, tags, or URLs
 - Create block and allow rules using regex
+- Use literal text mode for generated rules, or regex mode for exact Miniflux patterns
 - Preserve rule order, which matters because Miniflux stops on the first match
 - Keep saved rule text compatible with Miniflux without a custom conversion layer
 - Update Miniflux feed rules without needing a separate database or custom format

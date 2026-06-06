@@ -1,31 +1,48 @@
 interface SummaryCardsProps {
   totalFeeds: number;
   feedsWithRules: number;
+  failedFeeds: number;
   totalBlockRules: number;
   totalAllowRules: number;
+  onShowFailedFeeds?: () => void;
 }
 
 export default function SummaryCards({
   totalFeeds,
   feedsWithRules,
+  failedFeeds,
   totalBlockRules,
-  totalAllowRules
+  totalAllowRules,
+  onShowFailedFeeds
 }: SummaryCardsProps) {
   const metrics = [
     { label: "Total feeds", value: totalFeeds },
     { label: "Feeds with rules", value: feedsWithRules },
+    { label: "Failed feeds", value: failedFeeds, onClick: onShowFailedFeeds },
     { label: "Block rules", value: totalBlockRules },
     { label: "Allow rules", value: totalAllowRules }
   ];
 
   return (
     <section className="summary-strip" aria-label="Overview">
-      {metrics.map((metric) => (
-        <article className="summary-metric" key={metric.label}>
-          <span>{metric.label}</span>
-          <strong>{metric.value}</strong>
-        </article>
-      ))}
+      {metrics.map((metric) =>
+        metric.onClick ? (
+          <button
+            type="button"
+            className="summary-metric summary-metric--button"
+            key={metric.label}
+            onClick={metric.onClick}
+          >
+            <span>{metric.label}</span>
+            <strong>{metric.value}</strong>
+          </button>
+        ) : (
+          <article className="summary-metric" key={metric.label}>
+            <span>{metric.label}</span>
+            <strong>{metric.value}</strong>
+          </article>
+        )
+      )}
     </section>
   );
 }
