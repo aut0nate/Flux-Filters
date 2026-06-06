@@ -339,6 +339,15 @@ a {
   gap: 0.75rem;
 }
 
+.app-header__actions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.app-header__actions .ghost-button {
+  white-space: nowrap;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(22rem, 28rem) minmax(0, 1fr);
@@ -1274,12 +1283,56 @@ select,
     width: 100%;
   }
 
-  .app-header__actions > *,
+  .editor-header__actions,
+  .review-panel__actions,
+  .failed-feeds-panel__actions {
+    flex-wrap: wrap;
+  }
+
+  .app-header__actions {
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0 -1rem;
+    overflow-x: auto;
+    padding: 0 1rem 0.15rem;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-header__actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-header__actions > * {
+    flex: 0 0 auto;
+  }
+
+  .app-header__actions .theme-toggle {
+    width: auto;
+  }
+
+  .app-header__actions .ghost-button {
+    min-height: 3.3rem;
+    padding: 0.8rem 1rem;
+    white-space: nowrap;
+  }
+
   .editor-header__actions > *,
   .review-panel__actions > *,
   .failed-feeds-panel__actions > button,
   .failed-feed-card__actions > * {
-    flex: 1;
+    flex: 1 1 10rem;
+  }
+
+  .editor-header__actions .ghost-button,
+  .editor-header__actions .primary-button,
+  .review-panel__actions .ghost-button,
+  .review-panel__actions .primary-button,
+  .failed-feeds-panel__actions .ghost-button,
+  .failed-feeds-panel__actions .primary-button,
+  .failed-feed-card__actions .ghost-button {
+    white-space: nowrap;
   }
 
   .app-header__brand {
@@ -1365,7 +1418,7 @@ select,
   .pill,
   .ghost-button,
   .primary-button {
-    white-space: normal;
+    overflow-wrap: normal;
   }
 
   .starred-card__actions .ghost-button,
