@@ -62,6 +62,15 @@ DEDUPE_AUTOMATION_ENABLED=false
 DEDUPE_INTERVAL_MINUTES=30
 DEDUPE_WINDOW_DAYS=7
 DEDUPE_AUDIT_PATH=/data/dedupe-audit.jsonl
+DEDUPE_CONFIG_PATH=/data/dedupe-config.json
+DEDUPE_SIMILAR_TITLE_THRESHOLD=0.82
+DEDUPE_LLM_ENABLED=false
+DEDUPE_LLM_CANDIDATE_MIN_SCORE=0.35
+DEDUPE_LLM_AUTO_CONFIDENCE=0.85
+DEDUPE_LLM_MAX_PAIRS=30
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=google/gemma-4-26b-a4b-it
+OPENROUTER_API_KEY=
 MINIFLUX_BASE_URL=
 MINIFLUX_API_TOKEN=
 FAILED_FEEDS_NOTIFICATION_ENABLED=false
@@ -80,6 +89,15 @@ Environment notes:
 - `DEDUPE_INTERVAL_MINUTES` - how often the automatic dedupe job runs. `30` is recommended.
 - `DEDUPE_WINDOW_DAYS` - how far back unread entries are compared. The intended value is `7`.
 - `DEDUPE_AUDIT_PATH` - where Flux Filters stores the JSONL audit log of marked-read duplicate groups.
+- `DEDUPE_CONFIG_PATH` - optional JSON file for overriding dedupe scoring words and thresholds without editing code.
+- `DEDUPE_SIMILAR_TITLE_THRESHOLD` - deterministic similar-title score required before an article is marked read.
+- `DEDUPE_LLM_ENABLED` - set to `true` to let OpenRouter review borderline similar-title candidates.
+- `DEDUPE_LLM_CANDIDATE_MIN_SCORE` - minimum local score before a pair is sent to OpenRouter.
+- `DEDUPE_LLM_AUTO_CONFIDENCE` - minimum OpenRouter confidence required before a semantic match is marked read.
+- `DEDUPE_LLM_MAX_PAIRS` - maximum number of candidate pairs sent to OpenRouter per dedupe run.
+- `OPENROUTER_BASE_URL` - OpenRouter API base URL. The default is `https://openrouter.ai/api/v1`.
+- `OPENROUTER_MODEL` - OpenRouter model used for semantic title checks.
+- `OPENROUTER_API_KEY` - OpenRouter API key used only by the server. Keep this only in `.env` on the server.
 - `MINIFLUX_BASE_URL` - Miniflux server URL used by the automatic dedupe job.
 - `MINIFLUX_API_TOKEN` - Miniflux API token used by the automatic dedupe job. Keep this only in `.env` on the server.
 - `FAILED_FEEDS_NOTIFICATION_ENABLED` - set to `true` to send ntfy alerts when Miniflux reports failed feeds.
@@ -88,6 +106,30 @@ Environment notes:
 - `NTFY_BASE_URL` - ntfy server URL used for failed-feed notifications.
 - `NTFY_TOPIC` - ntfy topic used for failed-feed notifications.
 - `NTFY_ACCESS_TOKEN` - ntfy bearer token used for publishing notifications. Keep this only in `.env` on the server.
+
+### Optional Dedupe Tuning
+
+Flux Filters always runs deterministic URL, exact-title, and similar-title matching first. If
+`DEDUPE_LLM_ENABLED=true`, it then sends only borderline title pairs to OpenRouter for a semantic
+decision. The OpenRouter request includes the two titles, feed names, timestamps, and local
+similarity score; it does not send article bodies, URLs, or Miniflux credentials.
+
+You can override the deterministic scoring defaults with `DEDUPE_CONFIG_PATH` without changing the
+application code. For example:
+
+```json
+{
+  "similarTitleThreshold": 0.82,
+  "llmCandidateMinScore": 0.35,
+  "llmAutoMatchConfidence": 0.85,
+  "llmMaxPairs": 30,
+  "genericSharedEntities": [
+    "world cup",
+    "world cup 2026",
+    "premier league"
+  ]
+}
+```
 
 ## Test Locally
 
@@ -161,6 +203,9 @@ For most Docker-based deployments:
    DEDUPE_INTERVAL_MINUTES=30
    DEDUPE_WINDOW_DAYS=7
    DEDUPE_AUDIT_PATH=/data/dedupe-audit.jsonl
+   DEDUPE_CONFIG_PATH=/data/dedupe-config.json
+   DEDUPE_LLM_ENABLED=false
+   OPENROUTER_API_KEY=
    MINIFLUX_BASE_URL=https://<your-miniflux-host>
    MINIFLUX_API_TOKEN=<server-side-miniflux-token>
    FAILED_FEEDS_NOTIFICATION_ENABLED=true

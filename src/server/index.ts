@@ -4,9 +4,20 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { createDedupePreview, type DedupeAuditRun, type DedupePreview } from "../shared/dedupe.js";
+import {
+  compareEntriesOldestFirst,
+  createDedupePreview,
+  normaliseDedupeConfig,
+  scoreSimilarTitles,
+  summariseEntry,
+  type DedupeAuditRun,
+  type DedupeConfig,
+  type DedupeGroup,
+  type DedupePreview
+} from "../shared/dedupe.js";
 import type {
   MinifluxEntriesResponse,
+  MinifluxEntry,
   MinifluxFeed,
   MinifluxUser
 } from "../shared/miniflux.js";
@@ -16,6 +27,8 @@ const port = Number(process.env.PORT || 3000);
 const clientDist = path.resolve(process.cwd(), "dist/client");
 const dedupeAuditPath =
   process.env.DEDUPE_AUDIT_PATH || path.resolve(process.cwd(), "data/dedupe-audit.jsonl");
+const dedupeConfigPath =
+  process.env.DEDUPE_CONFIG_PATH || path.resolve(process.cwd(), "data/dedupe-config.json");
 const failedFeedsStatePath =
   process.env.FAILED_FEEDS_STATE_PATH ||
   path.resolve(process.cwd(), "data/failed-feeds-notification-state.json");
@@ -41,6 +54,31 @@ interface DedupeJobConfig {
   intervalMinutes: number;
   windowDays: number;
   session: SessionPayload | null;
+}
+
+interface DedupeRuntimeConfig extends DedupeConfig {
+  llmCandidateMinScore: number;
+  llmAutoMatchConfidence: number;
+  llmMaxPairs: number;
+}
+
+interface OpenRouterConfig {
+  enabled: boolean;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
+interface SemanticTitleDecision {
+  sameStory: boolean;
+  confidence: number;
+  reason: string;
+}
+
+interface SemanticTitleCandidate {
+  keeper: MinifluxEntry;
+  duplicate: MinifluxEntry;
+  localScore: number;
 }
 
 interface NtfyConfig {
@@ -254,6 +292,89 @@ function getPositiveIntegerEnv(name: string, fallback: number, minimum: number, 
   return Math.min(Math.max(parsed, minimum), maximum);
 }
 
+function getNumberEnv(name: string, fallback: number, minimum: number, maximum: number): number {
+  const parsed = Number(process.env[name] ?? fallback);
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(Math.max(parsed, minimum), maximum);
+}
+
+async function loadDedupeConfig(): Promise<DedupeRuntimeConfig> {
+  let fileConfig: Partial<DedupeRuntimeConfig> = {};
+
+  try {
+    fileConfig = JSON.parse(await fs.readFile(dedupeConfigPath, "utf8")) as Partial<DedupeRuntimeConfig>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new Error("Unable to read dedupe config. Check that DEDUPE_CONFIG_PATH contains valid JSON.", {
+        cause: error
+      });
+    }
+  }
+
+  const deterministicConfig = normaliseDedupeConfig({
+    ...fileConfig,
+    similarTitleThreshold: getNumberEnv(
+      "DEDUPE_SIMILAR_TITLE_THRESHOLD",
+      fileConfig.similarTitleThreshold ?? 0.82,
+      0,
+      1
+    )
+  });
+
+  return {
+    ...deterministicConfig,
+    llmCandidateMinScore: getNumberEnv(
+      "DEDUPE_LLM_CANDIDATE_MIN_SCORE",
+      fileConfig.llmCandidateMinScore ?? 0.35,
+      0,
+      1
+    ),
+    llmAutoMatchConfidence: getNumberEnv(
+      "DEDUPE_LLM_AUTO_CONFIDENCE",
+      fileConfig.llmAutoMatchConfidence ?? 0.85,
+      0,
+      1
+    ),
+    llmMaxPairs: getPositiveIntegerEnv(
+      "DEDUPE_LLM_MAX_PAIRS",
+      fileConfig.llmMaxPairs ?? 30,
+      0,
+      250
+    )
+  };
+}
+
+function getOpenRouterConfig(): OpenRouterConfig | null {
+  if (process.env.DEDUPE_LLM_ENABLED !== "true") {
+    return null;
+  }
+
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim() || "";
+
+  if (!apiKey) {
+    console.error("Dedupe LLM matching is enabled but OPENROUTER_API_KEY is missing.");
+    return null;
+  }
+
+  const baseUrl = process.env.OPENROUTER_BASE_URL?.trim() || "https://openrouter.ai/api/v1";
+  const url = new URL(baseUrl);
+
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("Only http and https OpenRouter base URLs are supported.");
+  }
+
+  return {
+    enabled: true,
+    apiKey,
+    baseUrl: `${url.origin}${url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname}`,
+    model: process.env.OPENROUTER_MODEL?.trim() || "google/gemma-4-26b-a4b-it"
+  };
+}
+
 function getDedupeJobConfig(): DedupeJobConfig {
   const enabled = process.env.DEDUPE_AUTOMATION_ENABLED === "true";
   const serverUrl = process.env.MINIFLUX_BASE_URL || "";
@@ -379,13 +500,219 @@ async function markEntriesStatus(
   });
 }
 
+async function createServerDedupePreview(
+  entries: MinifluxEntry[],
+  windowDays: number
+): Promise<DedupePreview> {
+  const dedupeConfig = await loadDedupeConfig();
+  const preview = createDedupePreview(entries, {
+    windowDays,
+    config: dedupeConfig
+  });
+  const openRouterConfig = getOpenRouterConfig();
+
+  if (!openRouterConfig || dedupeConfig.llmMaxPairs === 0) {
+    return preview;
+  }
+
+  try {
+    return await addSemanticTitleGroups(entries, preview, windowDays, dedupeConfig, openRouterConfig);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : "Dedupe LLM matching failed.");
+    return preview;
+  }
+}
+
+async function addSemanticTitleGroups(
+  entries: MinifluxEntry[],
+  preview: DedupePreview,
+  windowDays: number,
+  dedupeConfig: DedupeRuntimeConfig,
+  openRouterConfig: OpenRouterConfig
+): Promise<DedupePreview> {
+  const consumedEntryIds = new Set(preview.markReadEntryIds);
+  const groups: DedupeGroup[] = [];
+  const candidates = createSemanticTitleCandidates(entries, preview, windowDays, dedupeConfig);
+
+  for (const candidate of candidates.slice(0, dedupeConfig.llmMaxPairs)) {
+    if (consumedEntryIds.has(candidate.keeper.id) || consumedEntryIds.has(candidate.duplicate.id)) {
+      continue;
+    }
+
+    const decision = await requestSemanticTitleDecision(openRouterConfig, candidate);
+
+    if (!decision.sameStory || decision.confidence < dedupeConfig.llmAutoMatchConfidence) {
+      continue;
+    }
+
+    consumedEntryIds.add(candidate.duplicate.id);
+    groups.push(createSemanticTitleGroup(candidate, decision, windowDays));
+  }
+
+  if (groups.length === 0) {
+    return preview;
+  }
+
+  const allGroups = [...preview.groups, ...groups];
+
+  return {
+    ...preview,
+    groups: allGroups,
+    markReadEntryIds: [...new Set(allGroups.flatMap((group) => group.duplicates.map((entry) => entry.id)))]
+  };
+}
+
+function createSemanticTitleCandidates(
+  entries: MinifluxEntry[],
+  preview: DedupePreview,
+  windowDays: number,
+  dedupeConfig: DedupeRuntimeConfig
+): SemanticTitleCandidate[] {
+  const unreadEntries = entries
+    .filter((entry) => entry.status === "unread")
+    .sort(compareEntriesOldestFirst);
+  const deterministicEntryIds = new Set([
+    ...preview.markReadEntryIds,
+    ...preview.groups.flatMap((group) => [group.keeper.id, ...group.duplicates.map((entry) => entry.id)])
+  ]);
+  const maxWindowMs = windowDays * 24 * 60 * 60 * 1000;
+  const candidates: SemanticTitleCandidate[] = [];
+
+  for (let leftIndex = 0; leftIndex < unreadEntries.length; leftIndex += 1) {
+    const left = unreadEntries[leftIndex];
+
+    if (deterministicEntryIds.has(left.id)) {
+      continue;
+    }
+
+    for (let rightIndex = leftIndex + 1; rightIndex < unreadEntries.length; rightIndex += 1) {
+      const right = unreadEntries[rightIndex];
+
+      if (deterministicEntryIds.has(right.id)) {
+        continue;
+      }
+
+      const distance = Math.abs(Date.parse(left.published_at) - Date.parse(right.published_at));
+      if (!Number.isFinite(distance) || distance > maxWindowMs) {
+        continue;
+      }
+
+      const localScore = scoreSimilarTitles(left.title, right.title, dedupeConfig);
+      if (
+        localScore < dedupeConfig.llmCandidateMinScore ||
+        localScore >= dedupeConfig.similarTitleThreshold
+      ) {
+        continue;
+      }
+
+      const [keeper, duplicate] = [left, right].sort(compareEntriesOldestFirst);
+      candidates.push({ keeper, duplicate, localScore });
+    }
+  }
+
+  return candidates.sort((left, right) => right.localScore - left.localScore);
+}
+
+async function requestSemanticTitleDecision(
+  config: OpenRouterConfig,
+  candidate: SemanticTitleCandidate
+): Promise<SemanticTitleDecision> {
+  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://flux-filters.autonate.dev",
+      "X-Title": "Flux Filters"
+    },
+    body: JSON.stringify({
+      model: config.model,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You compare two RSS article titles. Return compact JSON only: same_story boolean, confidence number from 0 to 1, and reason string. same_story is true only when both titles describe the same news event or materially the same article angle. Shared broad topics, tournaments, countries, clubs, or people are not enough."
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            article_a: {
+              title: candidate.keeper.title,
+              feed: candidate.keeper.feed?.title ?? `Feed ${candidate.keeper.feed_id}`,
+              published_at: candidate.keeper.published_at
+            },
+            article_b: {
+              title: candidate.duplicate.title,
+              feed: candidate.duplicate.feed?.title ?? `Feed ${candidate.duplicate.feed_id}`,
+              published_at: candidate.duplicate.published_at
+            },
+            local_similarity_score: candidate.localScore
+          })
+        }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenRouter dedupe request failed with status ${response.status}.`);
+  }
+
+  const payload = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const content = payload.choices?.[0]?.message?.content ?? "{}";
+  const decision = JSON.parse(content) as {
+    same_story?: unknown;
+    confidence?: unknown;
+    reason?: unknown;
+  };
+
+  return {
+    sameStory: decision.same_story === true,
+    confidence:
+      typeof decision.confidence === "number" && Number.isFinite(decision.confidence)
+        ? Math.min(Math.max(decision.confidence, 0), 1)
+        : 0,
+    reason: typeof decision.reason === "string" ? decision.reason.trim().slice(0, 160) : ""
+  };
+}
+
+function createSemanticTitleGroup(
+  candidate: SemanticTitleCandidate,
+  decision: SemanticTitleDecision,
+  windowDays: number
+): DedupeGroup {
+  return {
+    id: `semantic-title-${hashText(`${candidate.keeper.id}:${candidate.duplicate.id}`)}`,
+    stage: "semantic-title",
+    reason:
+      decision.reason ||
+      `Semantic title match within the ${windowDays}-day window using OpenRouter`,
+    score: Number(decision.confidence.toFixed(3)),
+    keeper: summariseEntry(candidate.keeper),
+    duplicates: [summariseEntry(candidate.duplicate)]
+  };
+}
+
+function hashText(value: string): string {
+  let hash = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+
+  return hash.toString(36);
+}
+
 async function runDedupeJob(
   session: SessionPayload,
   windowDays: number,
   mode: DedupeAuditRun["mode"]
 ): Promise<DedupeAuditRun | null> {
   const entries = await fetchUnreadEntriesForDedupe(session, windowDays);
-  const preview = createDedupePreview(entries.entries, { windowDays });
+  const preview = await createServerDedupePreview(entries.entries, windowDays);
 
   if (preview.markReadEntryIds.length === 0) {
     return null;
@@ -804,7 +1131,7 @@ app.get("/api/dedupe/preview", async (request, response) => {
     const session = getSessionFromHeaders(request);
     const windowDays = getDedupeWindowDays(request.query.windowDays);
     const entries = await fetchUnreadEntriesForDedupe(session, windowDays);
-    const preview: DedupePreview = createDedupePreview(entries.entries, { windowDays });
+    const preview: DedupePreview = await createServerDedupePreview(entries.entries, windowDays);
 
     response.json(preview);
   } catch (error) {
@@ -830,7 +1157,7 @@ app.put("/api/dedupe/apply", async (request, response) => {
     const payload = request.body as DedupeApplyPayload;
     const entryIds = getEntryIds(payload.entryIds);
     const entries = await fetchUnreadEntriesForDedupe(session, 7);
-    const preview = filterPreviewForEntryIds(createDedupePreview(entries.entries, { windowDays: 7 }), entryIds);
+    const preview = filterPreviewForEntryIds(await createServerDedupePreview(entries.entries, 7), entryIds);
 
     if (preview.markReadEntryIds.length === 0) {
       response.json({ markedReadCount: 0, entryIds: [] });

@@ -1,6 +1,6 @@
 import type { MinifluxEntry } from "./miniflux.js";
 
-export type DedupeMatchStage = "url" | "title" | "similar-title";
+export type DedupeMatchStage = "url" | "title" | "similar-title" | "semantic-title";
 
 export interface DedupeEntrySummary {
   id: number;
@@ -42,10 +42,12 @@ export interface DedupeAuditRun {
 interface DedupeOptions {
   windowDays?: number;
   similarTitleThreshold?: number;
+  config?: Partial<DedupeConfig>;
 }
 
 const DEFAULT_WINDOW_DAYS = 7;
 const DEFAULT_SIMILAR_TITLE_THRESHOLD = 0.82;
+const DEFAULT_ENTITY_ANCHORED_THRESHOLD = 0.22;
 const TRACKING_PARAMS = new Set([
   "fbclid",
   "gclid",
@@ -54,7 +56,7 @@ const TRACKING_PARAMS = new Set([
   "mc_eid",
   "msclkid"
 ]);
-const SOURCE_WORDS = new Set([
+const DEFAULT_SOURCE_WORDS = [
   "afp",
   "ap",
   "bbc",
@@ -68,8 +70,8 @@ const SOURCE_WORDS = new Set([
   "says",
   "source",
   "sources"
-]);
-const TITLE_STOP_WORDS = new Set([
+];
+const DEFAULT_TITLE_STOP_WORDS = [
   "a",
   "an",
   "and",
@@ -107,9 +109,8 @@ const TITLE_STOP_WORDS = new Set([
   "was",
   "were",
   "with"
-]);
-const ENTITY_ANCHORED_THRESHOLD = 0.22;
-const GENERIC_SHARED_ENTITIES = new Set([
+];
+const DEFAULT_GENERIC_SHARED_ENTITIES = [
   "africa cup",
   "asian cup",
   "carabao cup",
@@ -121,7 +122,51 @@ const GENERIC_SHARED_ENTITIES = new Set([
   "premier league",
   "world cup",
   "world cup 2026"
-]);
+];
+const DEFAULT_GENERIC_ENTITY_PATTERN =
+  "\\b(?:cup|league|championship|tournament|opener|qualifier|finals?)\\b";
+
+export interface DedupeConfig {
+  similarTitleThreshold: number;
+  sourceWords: string[];
+  titleStopWords: string[];
+  entityAnchoredThreshold: number;
+  genericSharedEntities: string[];
+  genericEntityPattern: string;
+}
+
+export const DEFAULT_DEDUPE_CONFIG: DedupeConfig = {
+  similarTitleThreshold: DEFAULT_SIMILAR_TITLE_THRESHOLD,
+  sourceWords: DEFAULT_SOURCE_WORDS,
+  titleStopWords: DEFAULT_TITLE_STOP_WORDS,
+  entityAnchoredThreshold: DEFAULT_ENTITY_ANCHORED_THRESHOLD,
+  genericSharedEntities: DEFAULT_GENERIC_SHARED_ENTITIES,
+  genericEntityPattern: DEFAULT_GENERIC_ENTITY_PATTERN
+};
+
+export function normaliseDedupeConfig(config: Partial<DedupeConfig> = {}): DedupeConfig {
+  return {
+    similarTitleThreshold: getConfigNumber(
+      config.similarTitleThreshold,
+      DEFAULT_DEDUPE_CONFIG.similarTitleThreshold,
+      0,
+      1
+    ),
+    sourceWords: normaliseConfigWords(config.sourceWords, DEFAULT_DEDUPE_CONFIG.sourceWords),
+    titleStopWords: normaliseConfigWords(config.titleStopWords, DEFAULT_DEDUPE_CONFIG.titleStopWords),
+    entityAnchoredThreshold: getConfigNumber(
+      config.entityAnchoredThreshold,
+      DEFAULT_DEDUPE_CONFIG.entityAnchoredThreshold,
+      0,
+      1
+    ),
+    genericSharedEntities: normaliseConfigWords(
+      config.genericSharedEntities,
+      DEFAULT_DEDUPE_CONFIG.genericSharedEntities
+    ),
+    genericEntityPattern: config.genericEntityPattern?.trim() || DEFAULT_DEDUPE_CONFIG.genericEntityPattern
+  };
+}
 
 export function normaliseEntryUrl(value: string): string {
   const trimmedValue = value.trim();
@@ -163,22 +208,30 @@ export function normaliseEntryTitle(value: string): string {
     .trim();
 }
 
-export function getTitleTokens(value: string): string[] {
+export function getTitleTokens(value: string, config: Partial<DedupeConfig> = {}): string[] {
+  const resolvedConfig = normaliseDedupeConfig(config);
+  const titleStopWords = new Set(resolvedConfig.titleStopWords);
+  const sourceWords = new Set(resolvedConfig.sourceWords);
   const tokens = normaliseEntryTitle(value)
     .replace(/['"]/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .split(" ")
     .map((token) => stemToken(token.trim()))
     .filter((token) => token.length > 1)
-    .filter((token) => !TITLE_STOP_WORDS.has(token))
-    .filter((token) => !SOURCE_WORDS.has(token));
+    .filter((token) => !titleStopWords.has(token))
+    .filter((token) => !sourceWords.has(token));
 
   return [...new Set(tokens)];
 }
 
-export function scoreSimilarTitles(left: string, right: string): number {
-  const leftTokens = getTitleTokens(left);
-  const rightTokens = getTitleTokens(right);
+export function scoreSimilarTitles(
+  left: string,
+  right: string,
+  config: Partial<DedupeConfig> = {}
+): number {
+  const resolvedConfig = normaliseDedupeConfig(config);
+  const leftTokens = getTitleTokens(left, resolvedConfig);
+  const rightTokens = getTitleTokens(right, resolvedConfig);
 
   if (leftTokens.length === 0 || rightTokens.length === 0) {
     return 0;
@@ -188,7 +241,7 @@ export function scoreSimilarTitles(left: string, right: string): number {
   const rightSet = new Set(rightTokens);
   const shared = [...leftSet].filter((token) => rightSet.has(token)).length;
   const tokenScore = (2 * shared) / (leftSet.size + rightSet.size);
-  const entityScore = scoreSharedEntities(left, right, tokenScore);
+  const entityScore = scoreSharedEntities(left, right, tokenScore, resolvedConfig);
 
   return Number(Math.max(tokenScore, entityScore).toFixed(3));
 }
@@ -197,8 +250,9 @@ export function createDedupePreview(
   entries: MinifluxEntry[],
   options: DedupeOptions = {}
 ): DedupePreview {
+  const config = normaliseDedupeConfig(options.config);
   const windowDays = options.windowDays ?? DEFAULT_WINDOW_DAYS;
-  const similarTitleThreshold = options.similarTitleThreshold ?? DEFAULT_SIMILAR_TITLE_THRESHOLD;
+  const similarTitleThreshold = options.similarTitleThreshold ?? config.similarTitleThreshold;
   const unreadEntries = entries
     .filter((entry) => entry.status === "unread")
     .sort(compareEntriesOldestFirst);
@@ -223,7 +277,9 @@ export function createDedupePreview(
       consumedEntryIds
     )
   );
-  groups.push(...createSimilarTitleGroups(unreadEntries, windowDays, similarTitleThreshold, consumedEntryIds));
+  groups.push(
+    ...createSimilarTitleGroups(unreadEntries, windowDays, similarTitleThreshold, config, consumedEntryIds)
+  );
 
   const markReadEntryIds = [...new Set(groups.flatMap((group) => group.duplicates.map((entry) => entry.id)))];
 
@@ -267,6 +323,7 @@ function createSimilarTitleGroups(
   entries: MinifluxEntry[],
   windowDays: number,
   threshold: number,
+  config: DedupeConfig,
   consumedEntryIds: Set<number>
 ): DedupeGroup[] {
   const groups: DedupeGroup[] = [];
@@ -281,7 +338,7 @@ function createSimilarTitleGroups(
       .filter((candidate) => candidate.id !== entry.id && !consumedEntryIds.has(candidate.id))
       .map((candidate) => ({
         entry: candidate,
-        score: scoreSimilarTitles(entry.title, candidate.title)
+        score: scoreSimilarTitles(entry.title, candidate.title, config)
       }))
       .filter(({ entry: candidate, score }) => {
         const distance = Math.abs(getEntryTime(entry) - getEntryTime(candidate));
@@ -334,7 +391,7 @@ function createGroup(
   };
 }
 
-function summariseEntry(entry: MinifluxEntry): DedupeEntrySummary {
+export function summariseEntry(entry: MinifluxEntry): DedupeEntrySummary {
   return {
     id: entry.id,
     feedId: entry.feed_id,
@@ -345,7 +402,7 @@ function summariseEntry(entry: MinifluxEntry): DedupeEntrySummary {
   };
 }
 
-function compareEntriesOldestFirst(left: MinifluxEntry, right: MinifluxEntry): number {
+export function compareEntriesOldestFirst(left: MinifluxEntry, right: MinifluxEntry): number {
   const timeDifference = getEntryTime(left) - getEntryTime(right);
 
   if (timeDifference !== 0) {
@@ -380,15 +437,20 @@ function stemToken(token: string): string {
   return token;
 }
 
-function scoreSharedEntities(left: string, right: string, tokenScore: number): number {
-  if (tokenScore < ENTITY_ANCHORED_THRESHOLD) {
+function scoreSharedEntities(
+  left: string,
+  right: string,
+  tokenScore: number,
+  config: DedupeConfig
+): number {
+  if (tokenScore < config.entityAnchoredThreshold) {
     return 0;
   }
 
-  const leftEntities = getTitleEntities(left);
-  const rightEntities = new Set(getTitleEntities(right));
+  const leftEntities = getTitleEntities(left, config);
+  const rightEntities = new Set(getTitleEntities(right, config));
   const hasSharedEntity = leftEntities.some(
-    (entity) => rightEntities.has(entity) && isDistinctiveSharedEntity(entity)
+    (entity) => rightEntities.has(entity) && isDistinctiveSharedEntity(entity, config)
   );
 
   if (!hasSharedEntity) {
@@ -398,7 +460,8 @@ function scoreSharedEntities(left: string, right: string, tokenScore: number): n
   return Math.min(0.9, 0.74 + tokenScore * 0.45);
 }
 
-function getTitleEntities(value: string): string[] {
+function getTitleEntities(value: string, config: DedupeConfig): string[] {
+  const sourceWords = new Set(config.sourceWords);
   const matches = value.matchAll(
     /\b(?:[A-Z][a-z]+|[A-Z]{2,})(?:['’]s)?(?:\s+(?:[A-Z][a-z]+|[A-Z]{2,})(?:['’]s)?)+/g
   );
@@ -409,22 +472,47 @@ function getTitleEntities(value: string): string[] {
         .replace(/[’']/g, "")
         .toLowerCase()
         .replace(/\s+/g, " ")
-        .trim()
+    .trim()
     )
     .filter((entity) => entity.split(" ").length >= 2)
-    .filter((entity) => !SOURCE_WORDS.has(entity));
+    .filter((entity) => !sourceWords.has(entity));
 }
 
-function isDistinctiveSharedEntity(entity: string): boolean {
-  if (GENERIC_SHARED_ENTITIES.has(entity)) {
+function isDistinctiveSharedEntity(entity: string, config: DedupeConfig): boolean {
+  if (new Set(config.genericSharedEntities).has(entity)) {
     return false;
   }
 
-  if (/\b(?:cup|league|championship|tournament|opener|qualifier|finals?)\b/.test(entity)) {
+  if (new RegExp(config.genericEntityPattern).test(entity)) {
     return false;
   }
 
   return true;
+}
+
+function getConfigNumber(
+  value: number | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+function normaliseConfigWords(value: string[] | undefined, fallback: string[]): string[] {
+  const words = Array.isArray(value) ? value : fallback;
+
+  return [
+    ...new Set(
+      words
+        .map((word) => word.trim().toLowerCase().replace(/\s+/g, " "))
+        .filter(Boolean)
+    )
+  ];
 }
 
 function hashGroupKey(value: string): string {
