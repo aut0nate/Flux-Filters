@@ -95,6 +95,11 @@ interface FailedFeedsJobConfig {
   ntfy: NtfyConfig | null;
 }
 
+interface DedupeNotificationConfig {
+  enabled: boolean;
+  ntfy: NtfyConfig | null;
+}
+
 interface FailedFeedNotificationState {
   signature: string;
   notifiedAt: string;
@@ -440,6 +445,13 @@ function getFailedFeedsJobConfig(): FailedFeedsJobConfig {
   };
 }
 
+function getDedupeNotificationConfig(): DedupeNotificationConfig {
+  return {
+    enabled: process.env.DEDUPE_NTFY_NOTIFICATION_ENABLED === "true",
+    ntfy: getNtfyConfig()
+  };
+}
+
 function createAuditRun(mode: DedupeAuditRun["mode"], preview: DedupePreview): DedupeAuditRun {
   return {
     id: globalThis.crypto.randomUUID(),
@@ -753,7 +765,8 @@ function hashText(value: string): string {
 async function runDedupeJob(
   session: SessionPayload,
   windowDays: number,
-  mode: DedupeAuditRun["mode"]
+  mode: DedupeAuditRun["mode"],
+  notificationConfig = getDedupeNotificationConfig()
 ): Promise<DedupeAuditRun | null> {
   const entries = await fetchUnreadEntriesForDedupe(session, windowDays);
   const preview = await createServerDedupePreview(entries.entries, windowDays);
@@ -765,7 +778,95 @@ async function runDedupeJob(
   await markEntriesStatus(session, preview.markReadEntryIds, "read");
   const run = createAuditRun(mode, preview);
   await appendDedupeAuditRun(run);
+  await notifyFilteredEntries(run, notificationConfig);
   return run;
+}
+
+function formatDedupeStage(stage: DedupeGroup["stage"]): string {
+  return stage
+    .split("-")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function formatEntryLine(prefix: string, entry: DedupeGroup["keeper"]): string {
+  const feedTitle = entry.feedTitle ? ` (${entry.feedTitle})` : "";
+  return `${prefix}: ${entry.title}${feedTitle}\n${entry.url}`;
+}
+
+function formatFilteredEntriesMessage(run: DedupeAuditRun): string {
+  const visibleGroups = run.groups.slice(0, 5);
+  const lines = visibleGroups.flatMap((group, index) => {
+    const duplicateLines = group.duplicates
+      .slice(0, 3)
+      .flatMap((entry) => [formatEntryLine("Filtered", entry), ""]);
+
+    if (group.duplicates.length > 3) {
+      duplicateLines.push(`...and ${group.duplicates.length - 3} more filtered articles in this group.`, "");
+    }
+
+    return [
+      `Match ${index + 1}: ${formatDedupeStage(group.stage)} (${Math.round(group.score * 100)}%)`,
+      group.reason,
+      formatEntryLine("Kept unread", group.keeper),
+      "",
+      ...duplicateLines
+    ];
+  });
+
+  if (run.groups.length > visibleGroups.length) {
+    lines.push(`...and ${run.groups.length - visibleGroups.length} more duplicate groups.`);
+  }
+
+  return lines.join("\n").trim();
+}
+
+async function publishNtfyNotification(
+  config: NtfyConfig,
+  notification: { title: string; body: string; priority?: string; tags?: string }
+): Promise<void> {
+  const response = await fetch(joinNtfyTopicUrl(config), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.accessToken}`,
+      Title: notification.title,
+      Priority: notification.priority || "default",
+      Tags: notification.tags || "rss"
+    },
+    body: notification.body
+  });
+
+  if (!response.ok) {
+    throw new Error(`ntfy publish failed with status ${response.status}.`);
+  }
+}
+
+async function notifyFilteredEntries(
+  run: DedupeAuditRun,
+  notificationConfig: DedupeNotificationConfig
+): Promise<void> {
+  if (!notificationConfig.enabled || run.markedReadCount === 0) {
+    return;
+  }
+
+  if (!notificationConfig.ntfy) {
+    console.error("Dedupe ntfy notifications are enabled but ntfy configuration is incomplete.");
+    return;
+  }
+
+  try {
+    await publishNtfyNotification(notificationConfig.ntfy, {
+      title:
+        run.markedReadCount === 1
+          ? "Flux Filters filtered 1 article"
+          : `Flux Filters filtered ${run.markedReadCount} articles`,
+      priority: run.markedReadCount >= 5 ? "high" : "default",
+      tags: "wastebasket,rss",
+      body: formatFilteredEntriesMessage(run)
+    });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : "Dedupe ntfy notification failed.");
+  }
 }
 
 function isFailedFeed(feed: MinifluxFeed): boolean {
@@ -854,20 +955,12 @@ function formatFailedFeedsMessage(feeds: FailedFeedSummary[]): string {
 async function publishFailedFeedsNotification(config: NtfyConfig, feeds: FailedFeedSummary[]): Promise<void> {
   const title =
     feeds.length === 1 ? "Miniflux feed failing" : `${feeds.length} Miniflux feeds failing`;
-  const response = await fetch(joinNtfyTopicUrl(config), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.accessToken}`,
-      Title: title,
-      Priority: feeds.length >= 5 ? "high" : "default",
-      Tags: "warning,rss"
-    },
+  await publishNtfyNotification(config, {
+    title,
+    priority: feeds.length >= 5 ? "high" : "default",
+    tags: "warning,rss",
     body: formatFailedFeedsMessage(feeds)
   });
-
-  if (!response.ok) {
-    throw new Error(`ntfy publish failed with status ${response.status}.`);
-  }
 }
 
 async function runFailedFeedsNotificationJob(
@@ -1211,6 +1304,7 @@ app.put("/api/dedupe/apply", async (request, response) => {
     await markEntriesStatus(session, preview.markReadEntryIds, "read");
     const run = createAuditRun("manual", preview);
     await appendDedupeAuditRun(run);
+    await notifyFilteredEntries(run, getDedupeNotificationConfig());
 
     response.json({
       markedReadCount: preview.markReadEntryIds.length,
