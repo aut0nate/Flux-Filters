@@ -89,12 +89,7 @@ jobs:
 
           if [ ! -f .env ]; then
             install -m 640 /dev/null .env
-          elif [ -O .env ]; then
-            chmod 640 .env
           fi
-
-          chmod 664 docker-compose.yaml
-          chmod 2775 .
 
           test -r .env || {
             echo ".env is not readable by ${{ secrets.VPS_USER }}. Expected ${DEPLOY_PATH}/.env to be readable by the deploy user, for example ${{ secrets.VPS_USER }}:deploy with mode 640."
