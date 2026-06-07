@@ -16,7 +16,6 @@ permissions:
 env:
   IMAGE_NAME: ghcr.io/aut0nate/flux-filters
   DEPLOY_PATH: /opt/stacks/flux-filters
-  DEPLOY_GROUP: deploy
 
 jobs:
   build-and-push:
@@ -92,15 +91,13 @@ jobs:
             install -m 640 /dev/null .env
           elif [ -O .env ]; then
             chmod 640 .env
-            chgrp "${DEPLOY_GROUP}" .env
           fi
 
-          chgrp "${DEPLOY_GROUP}" docker-compose.yaml
           chmod 664 docker-compose.yaml
           chmod 2775 .
 
           test -r .env || {
-            echo ".env is not readable by ${{ secrets.VPS_USER }}. Expected ${DEPLOY_PATH}/.env to be owned by ${{ secrets.VPS_USER }}:${DEPLOY_GROUP} with mode 640."
+            echo ".env is not readable by ${{ secrets.VPS_USER }}. Expected ${DEPLOY_PATH}/.env to be readable by the deploy user, for example ${{ secrets.VPS_USER }}:deploy with mode 640."
             ls -la
             exit 1
           }
