@@ -23,7 +23,8 @@ interface DedupeReviewProps {
 const STAGE_LABELS: Record<DedupeGroup["stage"], string> = {
   url: "URL",
   title: "Title",
-  "similar-title": "Similar title"
+  "similar-title": "Similar title",
+  "semantic-title": "Semantic title"
 };
 
 export default function DedupeReview({

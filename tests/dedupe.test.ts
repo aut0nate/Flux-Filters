@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createDedupePreview,
+  normaliseDedupeConfig,
   normaliseEntryTitle,
   normaliseEntryUrl,
   scoreSimilarTitles
@@ -71,6 +72,33 @@ describe("Miniflux dedupe helpers", () => {
         "World Cup 2026: Are Portugal a better team without Cristiano Ronaldo?"
       )
     ).toBeLessThan(0.82);
+  });
+
+  it("normalises custom dedupe config values", () => {
+    expect(
+      normaliseDedupeConfig({
+        sourceWords: [" BBC ", "bbc", "Reuters"],
+        titleStopWords: [" The ", "And"],
+        genericSharedEntities: [" World   Cup "],
+        similarTitleThreshold: 1.5,
+        entityAnchoredThreshold: -1
+      })
+    ).toMatchObject({
+      sourceWords: ["bbc", "reuters"],
+      titleStopWords: ["the", "and"],
+      genericSharedEntities: ["world cup"],
+      similarTitleThreshold: 1,
+      entityAnchoredThreshold: 0
+    });
+  });
+
+  it("allows source words to be adjusted without code changes", () => {
+    expect(scoreSimilarTitles("OpenAI report", "OpenAI update")).toBe(0.667);
+    expect(
+      scoreSimilarTitles("OpenAI report", "OpenAI update", {
+        sourceWords: ["openai"]
+      })
+    ).toBe(0);
   });
 
   it("keeps the oldest URL duplicate and marks newer duplicates as read candidates", () => {
