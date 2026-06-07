@@ -2,6 +2,7 @@ import type {
   DedupeAuditRun,
   DedupeEntrySummary,
   DedupeGroup,
+  DedupeLlmSummary,
   DedupePreview
 } from "../../shared/dedupe";
 
@@ -97,6 +98,12 @@ export default function DedupeReview({
               <span>{markReadCount}</span>
               <p>Will be marked read</p>
             </div>
+            {preview.llm ? (
+              <div>
+                <span>{preview.llm.checkedPairs}</span>
+                <p>{formatLlmSummary(preview.llm)}</p>
+              </div>
+            ) : null}
           </div>
 
           {preview.groups.length === 0 ? (
@@ -153,6 +160,7 @@ export default function DedupeReview({
                     <p>
                       {run.mode === "automatic" ? "Automatic run" : "Manual run"} |{" "}
                       {run.markedReadCount} marked read | {run.totalUnreadEntries} unread checked
+                      {run.llm ? ` | ${formatLlmSummary(run.llm)}` : ""}
                     </p>
                   </div>
                   <button
@@ -216,6 +224,18 @@ function EntrySummary({ entry }: { entry: DedupeEntrySummary }) {
       </p>
     </div>
   );
+}
+
+function formatLlmSummary(summary: DedupeLlmSummary): string {
+  if (!summary.enabled) {
+    return "LLM disabled";
+  }
+
+  if (summary.error) {
+    return "LLM error";
+  }
+
+  return `LLM checked ${summary.checkedPairs} of ${summary.candidatePairs}, matched ${summary.matchedPairs}, rejected ${summary.rejectedPairs}, skipped ${summary.skippedPairs}`;
 }
 
 function formatDate(value: string): string {

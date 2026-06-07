@@ -13,6 +13,7 @@ import {
   type DedupeAuditRun,
   type DedupeConfig,
   type DedupeGroup,
+  type DedupeLlmSummary,
   type DedupePreview
 } from "../shared/dedupe.js";
 import type {
@@ -448,7 +449,8 @@ function createAuditRun(mode: DedupeAuditRun["mode"], preview: DedupePreview): D
     totalUnreadEntries: preview.totalUnreadEntries,
     markedReadCount: preview.markReadEntryIds.length,
     markedReadEntryIds: preview.markReadEntryIds,
-    groups: preview.groups
+    groups: preview.groups,
+    llm: preview.llm
   };
 }
 
@@ -512,14 +514,28 @@ async function createServerDedupePreview(
   const openRouterConfig = getOpenRouterConfig();
 
   if (!openRouterConfig || dedupeConfig.llmMaxPairs === 0) {
-    return preview;
+    return {
+      ...preview,
+      llm: createLlmSummary({
+        enabled: Boolean(openRouterConfig),
+        model: openRouterConfig?.model ?? null
+      })
+    };
   }
 
   try {
     return await addSemanticTitleGroups(entries, preview, windowDays, dedupeConfig, openRouterConfig);
   } catch (error) {
-    console.error(error instanceof Error ? error.message : "Dedupe LLM matching failed.");
-    return preview;
+    const message = error instanceof Error ? error.message : "Dedupe LLM matching failed.";
+    console.error(message);
+    return {
+      ...preview,
+      llm: createLlmSummary({
+        enabled: true,
+        model: openRouterConfig.model,
+        error: message
+      })
+    };
   }
 }
 
@@ -533,24 +549,38 @@ async function addSemanticTitleGroups(
   const consumedEntryIds = new Set(preview.markReadEntryIds);
   const groups: DedupeGroup[] = [];
   const candidates = createSemanticTitleCandidates(entries, preview, windowDays, dedupeConfig);
+  const llmSummary = createLlmSummary({
+    enabled: true,
+    model: openRouterConfig.model,
+    candidatePairs: candidates.length
+  });
 
   for (const candidate of candidates.slice(0, dedupeConfig.llmMaxPairs)) {
     if (consumedEntryIds.has(candidate.keeper.id) || consumedEntryIds.has(candidate.duplicate.id)) {
+      llmSummary.skippedPairs += 1;
       continue;
     }
 
     const decision = await requestSemanticTitleDecision(openRouterConfig, candidate);
+    llmSummary.checkedPairs += 1;
 
     if (!decision.sameStory || decision.confidence < dedupeConfig.llmAutoMatchConfidence) {
+      llmSummary.rejectedPairs += 1;
       continue;
     }
 
     consumedEntryIds.add(candidate.duplicate.id);
+    llmSummary.matchedPairs += 1;
     groups.push(createSemanticTitleGroup(candidate, decision, windowDays));
   }
 
+  llmSummary.skippedPairs += Math.max(candidates.length - dedupeConfig.llmMaxPairs, 0);
+
   if (groups.length === 0) {
-    return preview;
+    return {
+      ...preview,
+      llm: llmSummary
+    };
   }
 
   const allGroups = [...preview.groups, ...groups];
@@ -558,7 +588,21 @@ async function addSemanticTitleGroups(
   return {
     ...preview,
     groups: allGroups,
-    markReadEntryIds: [...new Set(allGroups.flatMap((group) => group.duplicates.map((entry) => entry.id)))]
+    markReadEntryIds: [...new Set(allGroups.flatMap((group) => group.duplicates.map((entry) => entry.id)))],
+    llm: llmSummary
+  };
+}
+
+function createLlmSummary(summary: Partial<DedupeLlmSummary> = {}): DedupeLlmSummary {
+  return {
+    enabled: summary.enabled ?? false,
+    model: summary.model ?? null,
+    candidatePairs: summary.candidatePairs ?? 0,
+    checkedPairs: summary.checkedPairs ?? 0,
+    matchedPairs: summary.matchedPairs ?? 0,
+    rejectedPairs: summary.rejectedPairs ?? 0,
+    skippedPairs: summary.skippedPairs ?? 0,
+    ...(summary.error ? { error: summary.error } : {})
   };
 }
 

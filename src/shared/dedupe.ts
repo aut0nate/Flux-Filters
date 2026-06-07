@@ -20,12 +20,24 @@ export interface DedupeGroup {
   duplicates: DedupeEntrySummary[];
 }
 
+export interface DedupeLlmSummary {
+  enabled: boolean;
+  model: string | null;
+  candidatePairs: number;
+  checkedPairs: number;
+  matchedPairs: number;
+  rejectedPairs: number;
+  skippedPairs: number;
+  error?: string;
+}
+
 export interface DedupePreview {
   generatedAt: string;
   windowDays: number;
   totalUnreadEntries: number;
   groups: DedupeGroup[];
   markReadEntryIds: number[];
+  llm?: DedupeLlmSummary;
 }
 
 export interface DedupeAuditRun {
@@ -37,6 +49,7 @@ export interface DedupeAuditRun {
   markedReadCount: number;
   markedReadEntryIds: number[];
   groups: DedupeGroup[];
+  llm?: DedupeLlmSummary;
 }
 
 interface DedupeOptions {
