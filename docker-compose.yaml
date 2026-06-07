@@ -8,6 +8,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - flux-filters-data:/data
     ports:
       - "3000:3000"
     read_only: true
@@ -19,3 +21,6 @@ services:
       options:
         max-size: 10m
         max-file: "3"
+
+volumes:
+  flux-filters-data:

@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - flux-filters-data:/data
     networks:
       - edge-net
     expose:
@@ -22,3 +24,6 @@ services:
 networks:
   edge-net:
     external: true
+
+volumes:
+  flux-filters-data:

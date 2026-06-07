@@ -12,6 +12,8 @@ It is for Miniflux users who want an easier way to manage regex filters without 
 
 - View feeds and see which ones already have rules
 - Review starred Miniflux entries as filter candidates
+- Review duplicate unread entries across feeds before marking newer matches as read
+- Optionally run duplicate cleanup automatically and review the last 7 days of actions
 - Create draft block rules from starred entry titles, authors, tags, or URLs
 - Create block and allow rules using regex
 - Use literal text mode for generated rules, or regex mode for exact Miniflux patterns
@@ -49,18 +51,31 @@ Before running this project, install:
 
    - `PORT`
    - `MINIFLUX_ALLOWED_HOSTS`
+   - Optional dedupe automation values, if you want Flux Filters to mark duplicates as read without the browser being open
 
 Example `.env`:
 
 ```bash
 PORT=3000
 MINIFLUX_ALLOWED_HOSTS=miniflux.example.com
+DEDUPE_AUTOMATION_ENABLED=false
+DEDUPE_INTERVAL_MINUTES=30
+DEDUPE_WINDOW_DAYS=7
+DEDUPE_AUDIT_PATH=/data/dedupe-audit.jsonl
+MINIFLUX_BASE_URL=
+MINIFLUX_API_TOKEN=
 ```
 
 Environment notes:
 
 - `PORT` - controls which port the Express server uses. The default is `3000`.
 - `MINIFLUX_ALLOWED_HOSTS` - limits which Miniflux hostnames the proxy will talk to.
+- `DEDUPE_AUTOMATION_ENABLED` - set to `true` to run unread duplicate cleanup automatically.
+- `DEDUPE_INTERVAL_MINUTES` - how often the automatic dedupe job runs. `30` is recommended.
+- `DEDUPE_WINDOW_DAYS` - how far back unread entries are compared. The intended value is `7`.
+- `DEDUPE_AUDIT_PATH` - where Flux Filters stores the JSONL audit log of marked-read duplicate groups.
+- `MINIFLUX_BASE_URL` - Miniflux server URL used by the automatic dedupe job.
+- `MINIFLUX_API_TOKEN` - Miniflux API token used by the automatic dedupe job. Keep this only in `.env` on the server.
 
 ## Test Locally
 
@@ -108,7 +123,7 @@ The local Compose file is `docker-compose.yml`. The production source Compose fi
 Notes:
 
 - The local `docker-compose.yaml` file publishes port `3000` to `localhost`.
-- There are no mounted data folders because the app does not store application data locally.
+- The `flux-filters-data` volume stores the dedupe audit log when duplicate cleanup is applied.
 - The container runs with a read-only root filesystem and `no-new-privileges`.
 - No first-run database or migration step is required.
 
@@ -130,6 +145,12 @@ For most Docker-based deployments:
    PORT=3000
    MINIFLUX_ALLOWED_HOSTS=<your-miniflux-host>
    IMAGE_TAG=latest
+   DEDUPE_AUTOMATION_ENABLED=true
+   DEDUPE_INTERVAL_MINUTES=30
+   DEDUPE_WINDOW_DAYS=7
+   DEDUPE_AUDIT_PATH=/data/dedupe-audit.jsonl
+   MINIFLUX_BASE_URL=https://<your-miniflux-host>
+   MINIFLUX_API_TOKEN=<server-side-miniflux-token>
    ```
 
 5. Create the external Docker network or use an existing one. If you use an existing network, update the `docker-compose.prod.yaml` file accordingly.
@@ -156,6 +177,7 @@ After deployment, verify:
 - The public homepage loads.
 - The app can reach the expected Miniflux host.
 - Existing rules can still be fetched and saved.
+- The Duplicates page shows the last 7 days of articles Flux Filters marked read.
 
 ## AI-Assisted Development
 

@@ -2,6 +2,9 @@ import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState
 
 import {
   ApiError,
+  applyDedupeEntries,
+  fetchDedupeAudit,
+  fetchDedupePreview,
   fetchFeed,
   fetchFeeds,
   fetchStarredEntries,
@@ -9,9 +12,11 @@ import {
   refreshFeed,
   saveFeedRules,
   testConnection,
+  markDedupeEntriesUnread,
   toggleEntryBookmark,
   type ClientSession
 } from "./api";
+import DedupeReview from "./components/DedupeReview";
 import FeedSidebar from "./components/FeedSidebar";
 import FailedFeedsPage from "./components/FailedFeedsPage";
 import LoginScreen from "./components/LoginScreen";
@@ -31,6 +36,7 @@ import {
   type MinifluxFeed,
   type RuleDraft
 } from "../shared/miniflux";
+import type { DedupeAuditRun, DedupePreview } from "../shared/dedupe";
 
 type RuleTab = "block" | "allow";
 
@@ -55,7 +61,7 @@ const LEGACY_SESSION_STORAGE_KEY = "flux-filters-session-storage";
 const THEME_STORAGE_KEY = "flux-filters-theme";
 
 type ThemeMode = "dark" | "light";
-type AppView = "dashboard" | "feed" | "failed-feeds";
+type AppView = "dashboard" | "feed" | "failed-feeds" | "dedupe";
 
 function readSavedSession(): SavedSession | null {
   const raw =
@@ -185,6 +191,8 @@ export default function App() {
   const [feeds, setFeeds] = useState<MinifluxFeed[]>([]);
   const [starredEntries, setStarredEntries] = useState<MinifluxEntry[]>([]);
   const [starredTotal, setStarredTotal] = useState(0);
+  const [dedupePreview, setDedupePreview] = useState<DedupePreview | null>(null);
+  const [dedupeAuditRuns, setDedupeAuditRuns] = useState<DedupeAuditRun[]>([]);
   const [selectedFeedId, setSelectedFeedId] = useState<number | null>(null);
   const [appView, setAppView] = useState<AppView>("dashboard");
   const [draftState, setDraftState] = useState<DraftState>(() => createDraftState(null));
@@ -194,9 +202,15 @@ export default function App() {
   const [loadingSession, setLoadingSession] = useState(false);
   const [loadingFeeds, setLoadingFeeds] = useState(false);
   const [loadingStarred, setLoadingStarred] = useState(false);
+  const [loadingDedupe, setLoadingDedupe] = useState(false);
+  const [loadingDedupeAudit, setLoadingDedupeAudit] = useState(false);
   const [loadingSelectedFeed, setLoadingSelectedFeed] = useState(false);
+  const [applyingDedupe, setApplyingDedupe] = useState(false);
+  const [restoringDedupeEntryIds, setRestoringDedupeEntryIds] = useState<number[]>([]);
   const [sessionError, setSessionError] = useState("");
   const [starredError, setStarredError] = useState("");
+  const [dedupeError, setDedupeError] = useState("");
+  const [dedupeMessage, setDedupeMessage] = useState("");
   const [failedFeedsMessage, setFailedFeedsMessage] = useState("");
   const [saveError, setSaveError] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
@@ -450,9 +464,13 @@ export default function App() {
     setFeeds([]);
     setStarredEntries([]);
     setStarredTotal(0);
+    setDedupePreview(null);
+    setDedupeAuditRuns([]);
     setSelectedFeedId(null);
     setSessionError("");
     setStarredError("");
+    setDedupeError("");
+    setDedupeMessage("");
     returnToStarredEntryId.current = null;
   }
 
@@ -494,6 +512,22 @@ export default function App() {
     setSaveMessage("");
     setFailedFeedsMessage("");
     scrollToPageTop();
+  }
+
+  function handleShowDedupe() {
+    returnToStarredEntryId.current = null;
+    setAppView("dedupe");
+    setSaveError("");
+    setSaveMessage("");
+    setFailedFeedsMessage("");
+    setDedupeError("");
+    setDedupeMessage("");
+    scrollToPageTop();
+
+    if (!dedupePreview) {
+      void handleRefreshDedupePreview();
+    }
+    void handleRefreshDedupeAudit();
   }
 
   function handleBackToDashboard() {
@@ -623,6 +657,92 @@ export default function App() {
     }
   }
 
+  async function handleRefreshDedupePreview() {
+    if (!session) {
+      return;
+    }
+
+    setLoadingDedupe(true);
+    setDedupeError("");
+    setDedupeMessage("");
+
+    try {
+      const preview = await fetchDedupePreview(session, 7);
+      setDedupePreview(preview);
+    } catch (error) {
+      setDedupeError(error instanceof Error ? error.message : "Unable to check duplicate entries.");
+    } finally {
+      setLoadingDedupe(false);
+    }
+  }
+
+  async function handleRefreshDedupeAudit() {
+    if (!session) {
+      return;
+    }
+
+    setLoadingDedupeAudit(true);
+
+    try {
+      const audit = await fetchDedupeAudit(session, 7);
+      setDedupeAuditRuns(audit.runs);
+    } catch (error) {
+      setDedupeError(error instanceof Error ? error.message : "Unable to load duplicate history.");
+    } finally {
+      setLoadingDedupeAudit(false);
+    }
+  }
+
+  async function handleApplyDedupe() {
+    if (!session || !dedupePreview || dedupePreview.markReadEntryIds.length === 0) {
+      return;
+    }
+
+    setApplyingDedupe(true);
+    setDedupeError("");
+    setDedupeMessage("");
+
+    try {
+      const result = await applyDedupeEntries(session, dedupePreview.markReadEntryIds);
+      setDedupeMessage(
+        `Marked ${result.markedReadCount} duplicate ${
+          result.markedReadCount === 1 ? "article" : "articles"
+        } as read.`
+      );
+      const refreshedPreview = await fetchDedupePreview(session, 7);
+      setDedupePreview(refreshedPreview);
+      await handleRefreshDedupeAudit();
+    } catch (error) {
+      setDedupeError(error instanceof Error ? error.message : "Unable to mark duplicate entries as read.");
+    } finally {
+      setApplyingDedupe(false);
+    }
+  }
+
+  async function handleRestoreDedupeEntries(entryIds: number[]) {
+    if (!session || entryIds.length === 0) {
+      return;
+    }
+
+    setRestoringDedupeEntryIds(entryIds);
+    setDedupeError("");
+    setDedupeMessage("");
+
+    try {
+      const result = await markDedupeEntriesUnread(session, entryIds);
+      setDedupeMessage(
+        `Marked ${result.markedUnreadCount} ${
+          result.markedUnreadCount === 1 ? "article" : "articles"
+        } as unread.`
+      );
+      await Promise.all([handleRefreshDedupePreview(), handleRefreshDedupeAudit()]);
+    } catch (error) {
+      setDedupeError(error instanceof Error ? error.message : "Unable to mark duplicate entries as unread.");
+    } finally {
+      setRestoringDedupeEntryIds([]);
+    }
+  }
+
   function handleAddSuggestedRule(entry: MinifluxEntry, rule: RuleDraft) {
     handleAddSuggestedRules(entry, [rule]);
   }
@@ -705,6 +825,13 @@ export default function App() {
           <button
             type="button"
             className="ghost-button"
+            onClick={handleShowDedupe}
+          >
+            Duplicates
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
             onClick={handleShowFailedFeeds}
           >
             Failed Feeds ({failedFeeds.length})
@@ -760,6 +887,23 @@ export default function App() {
             />
           </main>
         </>
+      ) : appView === "dedupe" ? (
+        <main className="workspace workspace--dashboard">
+          <DedupeReview
+            preview={dedupePreview}
+            auditRuns={dedupeAuditRuns}
+            loading={loadingDedupe}
+            loadingAudit={loadingDedupeAudit}
+            applying={applyingDedupe}
+            restoringEntryIds={restoringDedupeEntryIds}
+            error={dedupeError}
+            message={dedupeMessage}
+            onBack={handleShowDashboard}
+            onPreview={handleRefreshDedupePreview}
+            onApply={handleApplyDedupe}
+            onRestoreEntries={handleRestoreDedupeEntries}
+          />
+        </main>
       ) : appView === "failed-feeds" ? (
         <main className="workspace workspace--dashboard">
           <FailedFeedsPage

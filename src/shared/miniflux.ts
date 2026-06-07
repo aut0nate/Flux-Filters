@@ -108,6 +108,27 @@ function supportsUrlPatternFormatting(field: RuleField): boolean {
   return URL_FIELDS.has(field);
 }
 
+function parseUrlLikeValue(value: string): URL | null {
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return null;
+  }
+
+  try {
+    return new URL(trimmedValue);
+  } catch {
+    if (!/^[a-z0-9.-]+\.[a-z]{2,}(?:[/:?#]|$)/i.test(trimmedValue)) {
+      return null;
+    }
+
+    try {
+      return new URL(`https://${trimmedValue}`);
+    } catch {
+      return null;
+    }
+  }
+}
+
 function splitCaseInsensitivePrefix(field: RuleField, pattern: string) {
   if (!supportsCaseInsensitiveMatching(field) || !pattern.startsWith(CASE_INSENSITIVE_PREFIX)) {
     return {
@@ -191,6 +212,10 @@ function hasUnescapedSlash(value: string): boolean {
   return /(^|[^\\])\//.test(value);
 }
 
+function hasUnescapedDot(value: string): boolean {
+  return /(^|[^\\])\./.test(value);
+}
+
 function formatUrlRegexPattern(value: string): string {
   const escapedPattern = escapeRegexSlashes(escapeRegExp(value));
 
@@ -199,6 +224,48 @@ function formatUrlRegexPattern(value: string): string {
   }
 
   return `${escapedPattern}\\/`;
+}
+
+function isReusableUrlPathSegment(segment: string): boolean {
+  if (/^\d+$/.test(segment)) {
+    return false;
+  }
+
+  if (segment.length > 24 && /^[a-z0-9-]+$/i.test(segment)) {
+    return false;
+  }
+
+  if (segment.length >= 10 && /[0-9]/.test(segment) && /^[a-z0-9]+$/i.test(segment)) {
+    return false;
+  }
+
+  return true;
+}
+
+export function getUrlRuleCandidates(value: string): string[] {
+  const url = parseUrlLikeValue(value);
+  if (!url) {
+    return [];
+  }
+
+  const candidates = new Set<string>();
+  if (url.hostname) {
+    candidates.add(url.hostname);
+  }
+
+  url.pathname
+    .split("/")
+    .filter(Boolean)
+    .filter(isReusableUrlPathSegment)
+    .slice(0, 4)
+    .forEach((segment) => {
+      const candidate = `/${segment}/`;
+      if (candidate.length > 2 && candidate.length <= 80) {
+        candidates.add(candidate);
+      }
+    });
+
+  return [...candidates].slice(0, 6);
 }
 
 function isAsciiWordCharacter(value: string): boolean {
@@ -214,6 +281,10 @@ function applyTextPattern(field: RuleField, pattern: string): string {
   const trimmedPattern = pattern.trim();
   if (!supportsCaseInsensitiveMatching(field) || !trimmedPattern) {
     return trimmedPattern;
+  }
+
+  if (supportsUrlPatternFormatting(field)) {
+    return formatUrlRegexPattern(trimmedPattern);
   }
 
   return escapeRegExp(trimmedPattern);
@@ -304,7 +375,10 @@ function fixTrailingBoundaryAfterNonWord(pattern: string): string {
 
 function getUrlPatternSuggestion(pattern: string): RegexPatternSuggestion | null {
   const trimmedPattern = pattern.trim();
-  let fixedPattern = escapeRegexSlashes(trimmedPattern);
+  let fixedPattern =
+    hasUnescapedSlash(trimmedPattern) || hasUnescapedDot(trimmedPattern)
+      ? formatUrlRegexPattern(trimmedPattern)
+      : escapeRegexSlashes(trimmedPattern);
   const startsWithPathSlash = fixedPattern.startsWith("\\/");
   const endsWithPathSlash = fixedPattern.endsWith("\\/");
 
@@ -312,14 +386,18 @@ function getUrlPatternSuggestion(pattern: string): RegexPatternSuggestion | null
     fixedPattern = `${fixedPattern}\\/`;
   }
 
-  if (fixedPattern === trimmedPattern && !hasUnescapedSlash(trimmedPattern)) {
+  if (
+    fixedPattern === trimmedPattern &&
+    !hasUnescapedSlash(trimmedPattern) &&
+    !hasUnescapedDot(trimmedPattern)
+  ) {
     return null;
   }
 
   return {
     fixedPattern,
     message:
-      "URL rules should escape `/` as `\\/`. Simple path fragments should include the closing slash so they match a path segment."
+      "URL rules should escape literal dots and slashes. Simple path fragments should include the closing slash so they match a path segment."
   };
 }
 

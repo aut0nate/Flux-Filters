@@ -7,6 +7,7 @@ import {
   createRuleDraft,
   createRuleDraftFromText,
   getRegexPatternSuggestion,
+  getUrlRuleCandidates,
   hasFeedFailure,
   parseRuleText,
   supportsCaseInsensitiveMatching
@@ -85,6 +86,35 @@ describe("Miniflux rule helpers", () => {
     expect(compiled).toBe("EntryURL=(?i)\\/sport\\/cricket\\/");
   });
 
+  it("formats URL text rules as escaped host regex patterns", () => {
+    const compiled = compileRuleText([createRuleDraftFromText("EntryURL", "www.pcworld.com")]);
+
+    expect(compiled).toBe("EntryURL=(?i)www\\.pcworld\\.com");
+  });
+
+  it("formats standalone URL text mode rules as escaped regex patterns", () => {
+    const compiled = compileRuleText([
+      createRuleDraft(
+        "EntryURL",
+        "www.pcworld.com/article/apps-software/story.html",
+        true,
+        "text"
+      )
+    ]);
+
+    expect(compiled).toBe(
+      "EntryURL=(?i)www\\.pcworld\\.com\\/article\\/apps-software\\/story\\.html"
+    );
+  });
+
+  it("breaks URL rule candidates into host and reusable path components", () => {
+    expect(
+      getUrlRuleCandidates(
+        "www.pcworld.com/article/apps-software/3155007/turn-multiple-ai-subscriptions-into-one-60-lifetime-plan-with-gpt-4o-claude-and-gemini-included.html"
+      )
+    ).toEqual(["www.pcworld.com", "/article/", "/apps-software/"]);
+  });
+
   it("can compile possessive forms for regex alternatives", () => {
     const compiled = compileRuleText([
       createRuleDraft(
@@ -108,6 +138,12 @@ describe("Miniflux rule helpers", () => {
   it("suggests escaping URL path slashes and closing simple path fragments", () => {
     expect(getRegexPatternSuggestion("/thefilter", "EntryURL")).toMatchObject({
       fixedPattern: "\\/thefilter\\/"
+    });
+  });
+
+  it("suggests escaping URL host dots", () => {
+    expect(getRegexPatternSuggestion("www.pcworld.com", "EntryURL")).toMatchObject({
+      fixedPattern: "www\\.pcworld\\.com"
     });
   });
 

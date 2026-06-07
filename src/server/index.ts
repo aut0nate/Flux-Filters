@@ -1,7 +1,10 @@
 import "dotenv/config";
 import express from "express";
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
+import { createDedupePreview, type DedupeAuditRun, type DedupePreview } from "../shared/dedupe.js";
 import type {
   MinifluxEntriesResponse,
   MinifluxFeed,
@@ -11,6 +14,8 @@ import type {
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const clientDist = path.resolve(process.cwd(), "dist/client");
+const dedupeAuditPath =
+  process.env.DEDUPE_AUDIT_PATH || path.resolve(process.cwd(), "data/dedupe-audit.jsonl");
 
 app.use(express.json({ limit: "1mb" }));
 
@@ -22,6 +27,17 @@ interface SessionPayload {
 interface FeedRulesPayload {
   blocklistRules: string;
   keeplistRules: string;
+}
+
+interface DedupeApplyPayload {
+  entryIds: number[];
+}
+
+interface DedupeJobConfig {
+  enabled: boolean;
+  intervalMinutes: number;
+  windowDays: number;
+  session: SessionPayload | null;
 }
 
 async function mapWithConcurrency<T, R>(
@@ -131,6 +147,244 @@ async function minifluxRequest<T>(
   }
 
   return (await response.json()) as T;
+}
+
+async function fetchUnreadEntriesForDedupe(
+  session: SessionPayload,
+  windowDays: number
+): Promise<MinifluxEntriesResponse> {
+  const limit = 100;
+  const entries: MinifluxEntriesResponse["entries"] = [];
+  const publishedAfter = Math.floor((Date.now() - windowDays * 24 * 60 * 60 * 1000) / 1000);
+
+  for (let offset = 0; ; offset += limit) {
+    const params = new URLSearchParams({
+      status: "unread",
+      limit: String(limit),
+      offset: String(offset),
+      order: "published_at",
+      direction: "desc",
+      published_after: String(publishedAfter)
+    });
+    const response = await minifluxRequest<MinifluxEntriesResponse>(
+      session,
+      `/v1/entries?${params.toString()}`
+    );
+
+    entries.push(...response.entries);
+
+    if (entries.length >= response.total || response.entries.length === 0) {
+      break;
+    }
+  }
+
+  return {
+    total: entries.length,
+    entries
+  };
+}
+
+function getDedupeWindowDays(input: unknown): number {
+  const requestedWindowDays = Number(input ?? 7);
+
+  if (!Number.isInteger(requestedWindowDays)) {
+    return 7;
+  }
+
+  return Math.min(Math.max(requestedWindowDays, 1), 30);
+}
+
+function getEntryIds(input: unknown): number[] {
+  if (!Array.isArray(input)) {
+    throw new Error("Entry ids must be provided as a list.");
+  }
+
+  const entryIds = input.map(Number);
+
+  if (entryIds.some((entryId) => !Number.isInteger(entryId) || entryId <= 0)) {
+    throw new Error("Entry ids must be positive numbers.");
+  }
+
+  return [...new Set(entryIds)].slice(0, 500);
+}
+
+function getPositiveIntegerEnv(name: string, fallback: number, minimum: number, maximum: number): number {
+  const parsed = Number(process.env[name] ?? fallback);
+
+  if (!Number.isInteger(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(Math.max(parsed, minimum), maximum);
+}
+
+function getDedupeJobConfig(): DedupeJobConfig {
+  const enabled = process.env.DEDUPE_AUTOMATION_ENABLED === "true";
+  const serverUrl = process.env.MINIFLUX_BASE_URL || "";
+  const apiToken = process.env.MINIFLUX_API_TOKEN || "";
+  const session =
+    serverUrl && apiToken
+      ? {
+          serverUrl: normaliseServerUrl(serverUrl),
+          apiToken
+        }
+      : null;
+
+  return {
+    enabled,
+    intervalMinutes: getPositiveIntegerEnv("DEDUPE_INTERVAL_MINUTES", 30, 5, 1440),
+    windowDays: getPositiveIntegerEnv("DEDUPE_WINDOW_DAYS", 7, 1, 30),
+    session
+  };
+}
+
+function createAuditRun(mode: DedupeAuditRun["mode"], preview: DedupePreview): DedupeAuditRun {
+  return {
+    id: globalThis.crypto.randomUUID(),
+    mode,
+    createdAt: new Date().toISOString(),
+    windowDays: preview.windowDays,
+    totalUnreadEntries: preview.totalUnreadEntries,
+    markedReadCount: preview.markReadEntryIds.length,
+    markedReadEntryIds: preview.markReadEntryIds,
+    groups: preview.groups
+  };
+}
+
+async function appendDedupeAuditRun(run: DedupeAuditRun): Promise<void> {
+  await fs.mkdir(path.dirname(dedupeAuditPath), { recursive: true });
+  await fs.appendFile(dedupeAuditPath, `${JSON.stringify(run)}${os.EOL}`, "utf8");
+}
+
+async function readDedupeAuditRuns(days = 7): Promise<DedupeAuditRun[]> {
+  let rawAuditLog: string;
+
+  try {
+    rawAuditLog = await fs.readFile(dedupeAuditPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+
+    throw error;
+  }
+
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+
+  return rawAuditLog
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line) as DedupeAuditRun];
+      } catch {
+        return [];
+      }
+    })
+    .filter((run) => Date.parse(run.createdAt) >= cutoff)
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+}
+
+async function markEntriesStatus(
+  session: SessionPayload,
+  entryIds: number[],
+  status: "read" | "unread"
+): Promise<void> {
+  await minifluxRequest<void>(session, "/v1/entries", {
+    method: "PUT",
+    body: JSON.stringify({
+      entry_ids: entryIds,
+      status
+    })
+  });
+}
+
+async function runDedupeJob(
+  session: SessionPayload,
+  windowDays: number,
+  mode: DedupeAuditRun["mode"]
+): Promise<DedupeAuditRun | null> {
+  const entries = await fetchUnreadEntriesForDedupe(session, windowDays);
+  const preview = createDedupePreview(entries.entries, { windowDays });
+
+  if (preview.markReadEntryIds.length === 0) {
+    return null;
+  }
+
+  await markEntriesStatus(session, preview.markReadEntryIds, "read");
+  const run = createAuditRun(mode, preview);
+  await appendDedupeAuditRun(run);
+  return run;
+}
+
+function filterPreviewForEntryIds(preview: DedupePreview, entryIds: number[]): DedupePreview {
+  const requestedEntryIds = new Set(entryIds);
+  const groups = preview.groups
+    .map((group) => ({
+      ...group,
+      duplicates: group.duplicates.filter((entry) => requestedEntryIds.has(entry.id))
+    }))
+    .filter((group) => group.duplicates.length > 0);
+  const markReadEntryIds = [...new Set(groups.flatMap((group) => group.duplicates.map((entry) => entry.id)))];
+
+  return {
+    ...preview,
+    groups,
+    markReadEntryIds
+  };
+}
+
+function startDedupeScheduler() {
+  let config: DedupeJobConfig;
+
+  try {
+    config = getDedupeJobConfig();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : "Unable to configure dedupe automation.");
+    return;
+  }
+
+  if (!config.enabled) {
+    return;
+  }
+
+  if (!config.session) {
+    console.error("Dedupe automation is enabled but MINIFLUX_BASE_URL or MINIFLUX_API_TOKEN is missing.");
+    return;
+  }
+
+  const intervalMs = config.intervalMinutes * 60 * 1000;
+  let running = false;
+
+  async function runScheduledJob() {
+    if (running || !config.session) {
+      return;
+    }
+
+    running = true;
+
+    try {
+      const run = await runDedupeJob(config.session, config.windowDays, "automatic");
+
+      if (run) {
+        console.log(`Dedupe automation marked ${run.markedReadCount} duplicate entries as read.`);
+      }
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : "Dedupe automation failed.");
+    } finally {
+      running = false;
+    }
+  }
+
+  setTimeout(() => {
+    void runScheduledJob();
+  }, 15_000);
+  setInterval(() => {
+    void runScheduledJob();
+  }, intervalMs);
+  console.log(
+    `Dedupe automation enabled: every ${config.intervalMinutes} minutes, ${config.windowDays}-day window.`
+  );
 }
 
 function sendError(response: express.Response, error: unknown) {
@@ -283,6 +537,80 @@ app.put("/api/entries/:entryId/bookmark", async (request, response) => {
   }
 });
 
+app.get("/api/dedupe/preview", async (request, response) => {
+  try {
+    const session = getSessionFromHeaders(request);
+    const windowDays = getDedupeWindowDays(request.query.windowDays);
+    const entries = await fetchUnreadEntriesForDedupe(session, windowDays);
+    const preview: DedupePreview = createDedupePreview(entries.entries, { windowDays });
+
+    response.json(preview);
+  } catch (error) {
+    sendError(response, error);
+  }
+});
+
+app.get("/api/dedupe/audit", async (request, response) => {
+  try {
+    getSessionFromHeaders(request);
+    const days = getDedupeWindowDays(request.query.days);
+    const runs = await readDedupeAuditRuns(days);
+
+    response.json({ days, runs });
+  } catch (error) {
+    sendError(response, error);
+  }
+});
+
+app.put("/api/dedupe/apply", async (request, response) => {
+  try {
+    const session = getSessionFromHeaders(request);
+    const payload = request.body as DedupeApplyPayload;
+    const entryIds = getEntryIds(payload.entryIds);
+    const entries = await fetchUnreadEntriesForDedupe(session, 7);
+    const preview = filterPreviewForEntryIds(createDedupePreview(entries.entries, { windowDays: 7 }), entryIds);
+
+    if (preview.markReadEntryIds.length === 0) {
+      response.json({ markedReadCount: 0, entryIds: [] });
+      return;
+    }
+
+    await markEntriesStatus(session, preview.markReadEntryIds, "read");
+    const run = createAuditRun("manual", preview);
+    await appendDedupeAuditRun(run);
+
+    response.json({
+      markedReadCount: preview.markReadEntryIds.length,
+      entryIds: preview.markReadEntryIds,
+      run
+    });
+  } catch (error) {
+    sendError(response, error);
+  }
+});
+
+app.put("/api/dedupe/mark-unread", async (request, response) => {
+  try {
+    const session = getSessionFromHeaders(request);
+    const payload = request.body as DedupeApplyPayload;
+    const entryIds = getEntryIds(payload.entryIds);
+
+    if (entryIds.length === 0) {
+      response.json({ markedUnreadCount: 0, entryIds: [] });
+      return;
+    }
+
+    await markEntriesStatus(session, entryIds, "unread");
+
+    response.json({
+      markedUnreadCount: entryIds.length,
+      entryIds
+    });
+  } catch (error) {
+    sendError(response, error);
+  }
+});
+
 app.put("/api/feeds/:feedId/rules", async (request, response) => {
   try {
     const session = getSessionFromHeaders(request);
@@ -321,4 +649,5 @@ app.use((request, response, next) => {
 
 app.listen(port, () => {
   console.log(`Flux Filters listening on port ${port}`);
+  startDedupeScheduler();
 });
