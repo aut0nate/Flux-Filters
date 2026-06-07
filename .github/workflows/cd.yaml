@@ -89,15 +89,21 @@ jobs:
           cd "${DEPLOY_PATH}"
 
           if [ ! -f .env ]; then
-            sudo -n install -m 640 -o "${{ secrets.VPS_USER }}" -g "${DEPLOY_GROUP}" /dev/null .env
-          else
-            sudo -n chown "${{ secrets.VPS_USER }}:${DEPLOY_GROUP}" .env
-            sudo -n chmod 640 .env
+            install -m 640 /dev/null .env
+          elif [ -O .env ]; then
+            chmod 640 .env
+            chgrp "${DEPLOY_GROUP}" .env
           fi
 
-          sudo -n chown "${{ secrets.VPS_USER }}:${DEPLOY_GROUP}" docker-compose.yaml
+          chgrp "${DEPLOY_GROUP}" docker-compose.yaml
           chmod 664 docker-compose.yaml
           chmod 2775 .
+
+          test -r .env || {
+            echo ".env is not readable by ${{ secrets.VPS_USER }}. Expected ${DEPLOY_PATH}/.env to be owned by ${{ secrets.VPS_USER }}:${DEPLOY_GROUP} with mode 640."
+            ls -la
+            exit 1
+          }
 
           IMAGE_TAG="${{ github.event.workflow_run.head_sha }}" docker compose pull
           IMAGE_TAG="${{ github.event.workflow_run.head_sha }}" docker compose up -d
