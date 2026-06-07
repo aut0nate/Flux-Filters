@@ -16,6 +16,7 @@ permissions:
 env:
   IMAGE_NAME: ghcr.io/aut0nate/flux-filters
   DEPLOY_PATH: /opt/stacks/flux-filters
+  DEPLOY_GROUP: deploy
 
 jobs:
   build-and-push:
@@ -88,19 +89,19 @@ jobs:
           cd "${DEPLOY_PATH}"
 
           if [ ! -f .env ]; then
-            touch .env
-            chmod 600 .env
-          fi
-
-          if grep -q '^IMAGE_TAG=' .env; then
-            sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=${{ github.event.workflow_run.head_sha }}/" .env
+            sudo -n install -m 640 -o "${{ secrets.VPS_USER }}" -g "${DEPLOY_GROUP}" /dev/null .env
           else
-            printf '\nIMAGE_TAG=%s\n' "${{ github.event.workflow_run.head_sha }}" >> .env
+            sudo -n chown "${{ secrets.VPS_USER }}:${DEPLOY_GROUP}" .env
+            sudo -n chmod 640 .env
           fi
 
-          docker compose pull
-          docker compose up -d
+          sudo -n chown "${{ secrets.VPS_USER }}:${DEPLOY_GROUP}" docker-compose.yaml
+          chmod 664 docker-compose.yaml
+          chmod 2775 .
+
+          IMAGE_TAG="${{ github.event.workflow_run.head_sha }}" docker compose pull
+          IMAGE_TAG="${{ github.event.workflow_run.head_sha }}" docker compose up -d
           docker image prune -f
 
-          docker compose ps
+          IMAGE_TAG="${{ github.event.workflow_run.head_sha }}" docker compose ps
           EOF
