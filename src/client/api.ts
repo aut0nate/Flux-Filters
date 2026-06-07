@@ -1,3 +1,4 @@
+import type { DedupeAuditRun, DedupePreview } from "../shared/dedupe";
 import type { MinifluxEntriesResponse, MinifluxFeed, MinifluxUser } from "../shared/miniflux";
 
 export interface ClientSession {
@@ -120,6 +121,62 @@ export async function toggleEntryBookmark(session: ClientSession, entryId: numbe
   if (!response.ok) {
     await parseResponse<unknown>(response);
   }
+}
+
+export async function fetchDedupePreview(
+  session: ClientSession,
+  windowDays = 7
+): Promise<DedupePreview> {
+  const params = new URLSearchParams({ windowDays: String(windowDays) });
+  const response = await fetch(`/api/dedupe/preview?${params.toString()}`, {
+    headers: withSessionHeaders(session)
+  });
+
+  return parseResponse<DedupePreview>(response);
+}
+
+export async function fetchDedupeAudit(
+  session: ClientSession,
+  days = 7
+): Promise<{ days: number; runs: DedupeAuditRun[] }> {
+  const params = new URLSearchParams({ days: String(days) });
+  const response = await fetch(`/api/dedupe/audit?${params.toString()}`, {
+    headers: withSessionHeaders(session)
+  });
+
+  return parseResponse<{ days: number; runs: DedupeAuditRun[] }>(response);
+}
+
+export async function applyDedupeEntries(
+  session: ClientSession,
+  entryIds: number[]
+): Promise<{ markedReadCount: number; entryIds: number[]; run?: DedupeAuditRun }> {
+  const response = await fetch("/api/dedupe/apply", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...withSessionHeaders(session)
+    },
+    body: JSON.stringify({ entryIds })
+  });
+
+  return parseResponse<{ markedReadCount: number; entryIds: number[]; run?: DedupeAuditRun }>(response);
+}
+
+export async function markDedupeEntriesUnread(
+  session: ClientSession,
+  entryIds: number[]
+): Promise<{ markedUnreadCount: number; entryIds: number[] }> {
+  const response = await fetch("/api/dedupe/mark-unread", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...withSessionHeaders(session)
+    },
+    body: JSON.stringify({ entryIds })
+  });
+
+  return parseResponse<{ markedUnreadCount: number; entryIds: number[] }>(response);
 }
 
 export async function saveFeedRules(

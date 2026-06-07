@@ -65,6 +65,7 @@ The browser holds the Miniflux API token in session storage only. The Express se
 - Never hardcode API tokens or server URLs tied to live environments.
 - Keep `.env` files out of Git.
 - Restrict the proxy in production with `MINIFLUX_ALLOWED_HOSTS`.
+- Automatic dedupe uses `MINIFLUX_BASE_URL` and `MINIFLUX_API_TOKEN` from the server `.env`; never expose or log that token.
 - Do not log API tokens.
 
 ## Deployment notes
@@ -80,12 +81,15 @@ The browser holds the Miniflux API token in session storage only. The Express se
 - The production `docker-compose.prod.yaml` uses the GHCR image, `${IMAGE_TAG:-latest}`, and the external `edge-net` Docker network.
 - The VPS should keep only `/opt/stacks/flux-filters/docker-compose.yaml` and `/opt/stacks/flux-filters/.env`; do not build from source there once image deployment is working.
 - Runtime secrets belong in the VPS `.env` file, not in GitHub workflow files or the Docker image.
+- Automatic dedupe is opt-in with `DEDUPE_AUTOMATION_ENABLED=true`, runs every `DEDUPE_INTERVAL_MINUTES`, checks unread entries from `DEDUPE_WINDOW_DAYS`, and stores its audit log at `DEDUPE_AUDIT_PATH`.
+- The Docker Compose files mount `flux-filters-data` at `/data` so the dedupe audit log survives container restarts while the root filesystem remains read-only.
 
 ## Project constraints and rules
 
 - This app manages feed-level entry blocking and allow rules only for now.
 - It should read current rule text from Miniflux and write updated rule text back to Miniflux.
 - It may read starred Miniflux entries to help create draft rules, but starring remains owned by Miniflux.
+- It may mark duplicate unread entries as read when dedupe automation is explicitly enabled, and must keep a reviewable audit trail.
 - It should not depend on the old YAML workflow.
 - It should not introduce a database.
 - The interface should make rule order visible because Miniflux stops on the first match.

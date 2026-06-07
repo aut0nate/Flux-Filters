@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   createRuleDraftFromText,
+  getUrlRuleCandidates,
   type MinifluxEntry,
   type RuleField,
   type RuleDraft
@@ -136,50 +137,6 @@ function getDisplayUrl(value: string): string {
     return `${url.hostname}${url.pathname}`;
   } catch {
     return value;
-  }
-}
-
-function getUrlRuleCandidates(value: string): string[] {
-  try {
-    const url = new URL(value);
-    const segments = url.pathname.split("/").filter(Boolean);
-    const candidates = new Set<string>();
-
-    function isReusableSegment(segment: string): boolean {
-      if (/^\d+$/.test(segment)) {
-        return false;
-      }
-
-      if (segment.length > 24 && /^[a-z0-9-]+$/i.test(segment)) {
-        return false;
-      }
-
-      if (segment.length >= 10 && /[0-9]/.test(segment) && /^[a-z0-9]+$/i.test(segment)) {
-        return false;
-      }
-
-      return true;
-    }
-
-    const reusableSegments = segments.filter(isReusableSegment);
-
-    reusableSegments.slice(0, 3).forEach((_segment, index) => {
-      const candidate = `/${reusableSegments.slice(0, index + 1).join("/")}`;
-      if (candidate.length > 1 && candidate.length <= 80) {
-        candidates.add(candidate);
-      }
-    });
-
-    reusableSegments.slice(0, 4).forEach((segment) => {
-      const candidate = `/${segment}`;
-      if (candidate.length > 1 && candidate.length <= 80) {
-        candidates.add(candidate);
-      }
-    });
-
-    return [...candidates].slice(0, 6);
-  } catch {
-    return [];
   }
 }
 
