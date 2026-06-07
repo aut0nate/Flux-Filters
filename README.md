@@ -68,6 +68,7 @@ DEDUPE_LLM_ENABLED=false
 DEDUPE_LLM_CANDIDATE_MIN_SCORE=0.35
 DEDUPE_LLM_AUTO_CONFIDENCE=0.85
 DEDUPE_LLM_MAX_PAIRS=30
+DEDUPE_NTFY_NOTIFICATION_ENABLED=false
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_MODEL=google/gemma-4-26b-a4b-it
 OPENROUTER_API_KEY=
@@ -95,6 +96,7 @@ Environment notes:
 - `DEDUPE_LLM_CANDIDATE_MIN_SCORE` - minimum local score before a pair is sent to OpenRouter.
 - `DEDUPE_LLM_AUTO_CONFIDENCE` - minimum OpenRouter confidence required before a semantic match is marked read.
 - `DEDUPE_LLM_MAX_PAIRS` - maximum number of candidate pairs sent to OpenRouter per dedupe run.
+- `DEDUPE_NTFY_NOTIFICATION_ENABLED` - set to `true` to send ntfy alerts listing articles that dedupe filtered by marking them read.
 - `OPENROUTER_BASE_URL` - OpenRouter API base URL. The default is `https://openrouter.ai/api/v1`.
 - `OPENROUTER_MODEL` - OpenRouter model used for semantic title checks.
 - `OPENROUTER_API_KEY` - OpenRouter API key used only by the server. Keep this only in `.env` on the server.
@@ -103,8 +105,8 @@ Environment notes:
 - `FAILED_FEEDS_NOTIFICATION_ENABLED` - set to `true` to send ntfy alerts when Miniflux reports failed feeds.
 - `FAILED_FEEDS_INTERVAL_MINUTES` - how often failed feeds are checked. `60` is recommended.
 - `FAILED_FEEDS_STATE_PATH` - where Flux Filters stores the last notified failed-feed state to avoid repeated alerts.
-- `NTFY_BASE_URL` - ntfy server URL used for failed-feed notifications.
-- `NTFY_TOPIC` - ntfy topic used for failed-feed notifications.
+- `NTFY_BASE_URL` - ntfy server URL used for server-side notifications.
+- `NTFY_TOPIC` - ntfy topic used for server-side notifications.
 - `NTFY_ACCESS_TOKEN` - ntfy bearer token used for publishing notifications. Keep this only in `.env` on the server.
 
 ### Optional Dedupe Tuning
@@ -205,6 +207,7 @@ For most Docker-based deployments:
    DEDUPE_AUDIT_PATH=/data/dedupe-audit.jsonl
    DEDUPE_CONFIG_PATH=/data/dedupe-config.json
    DEDUPE_LLM_ENABLED=false
+   DEDUPE_NTFY_NOTIFICATION_ENABLED=true
    OPENROUTER_API_KEY=
    MINIFLUX_BASE_URL=https://<your-miniflux-host>
    MINIFLUX_API_TOKEN=<server-side-miniflux-token>
