@@ -6,6 +6,8 @@ on:
       - CI - Validate and build
     types:
       - completed
+    branches:
+      - main
 
 permissions:
   contents: read
