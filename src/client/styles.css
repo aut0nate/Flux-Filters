@@ -796,27 +796,6 @@ a {
   overflow-wrap: anywhere;
 }
 
-.mobile-manual-rule {
-  display: none;
-}
-
-.mobile-manual-rule label {
-  color: var(--muted);
-  font-size: 0.92rem;
-}
-
-.mobile-manual-rule textarea {
-  width: 100%;
-  min-height: 4.5rem;
-  resize: vertical;
-}
-
-.mobile-manual-rule__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem;
-}
-
 .compact-button {
   padding: 0.55rem 0.8rem;
   border-radius: 0.8rem;
@@ -1581,20 +1560,6 @@ select,
 
   .selection-action span,
   .selection-action button {
-    flex: 1 1 100%;
-  }
-
-  .mobile-manual-rule {
-    display: grid;
-    gap: 0.65rem;
-    margin-top: 0.75rem;
-    padding: 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 0.9rem;
-    background: var(--surface);
-  }
-
-  .mobile-manual-rule__actions button {
     flex: 1 1 100%;
   }
 

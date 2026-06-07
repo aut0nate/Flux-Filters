@@ -162,7 +162,6 @@ export default function StarredQueue({
     text: string;
   } | null>(null);
   const [unstarringEntryId, setUnstarringEntryId] = useState<number | null>(null);
-  const [manualRuleTextByEntryId, setManualRuleTextByEntryId] = useState<Record<number, string>>({});
   const reviewPanelRef = useRef<HTMLElement | null>(null);
 
   const handleTextSelection = useCallback(
@@ -200,32 +199,6 @@ export default function StarredQueue({
     window.setTimeout(handleCurrentSelection, 0);
     window.setTimeout(handleCurrentSelection, 250);
     window.setTimeout(handleCurrentSelection, 750);
-  }
-
-  function handleManualRuleTextChange(entryId: number, value: string) {
-    setManualRuleTextByEntryId((current) => ({ ...current, [entryId]: value }));
-  }
-
-  function handleAddManualRules(
-    entry: MinifluxEntry,
-    fields: SelectableRuleField | SelectableRuleField[]
-  ) {
-    const text = normaliseSelectedRuleText(manualRuleTextByEntryId[entry.id] ?? "");
-
-    if (!text) {
-      return;
-    }
-
-    const selectedFields = Array.isArray(fields) ? fields : [fields];
-    const rules = selectedFields.map((field) => createRuleDraftFromText(field, text, true));
-
-    if (rules.length === 1) {
-      onAddRule(entry, rules[0]);
-    } else {
-      onAddRules(entry, rules);
-    }
-
-    setManualRuleTextByEntryId((current) => ({ ...current, [entry.id]: "" }));
   }
 
   useEffect(() => {
@@ -314,9 +287,6 @@ export default function StarredQueue({
           {entries.map((entry) => {
             const contentParagraphs = getEntryContentParagraphs(entry);
             const urlRuleCandidates = getUrlRuleCandidates(entry.url);
-            const manualRuleText = manualRuleTextByEntryId[entry.id] ?? "";
-            const hasManualRuleText = Boolean(normaliseSelectedRuleText(manualRuleText));
-
             return (
               <article className="starred-card" id={`starred-entry-${entry.id}`} key={entry.id}>
                 <div className="starred-card__body">
@@ -414,45 +384,6 @@ export default function StarredQueue({
                       )}
                     </div>
                   ) : null}
-
-                  <div className="mobile-manual-rule">
-                    <label htmlFor={`manual-rule-text-${entry.id}`}>Paste highlighted text</label>
-                    <textarea
-                      id={`manual-rule-text-${entry.id}`}
-                      rows={2}
-                      value={manualRuleText}
-                      onChange={(event) =>
-                        handleManualRuleTextChange(entry.id, event.currentTarget.value)
-                      }
-                      placeholder="Copy text from the article above, paste it here, then choose a rule type."
-                    />
-                    <div className="mobile-manual-rule__actions">
-                      <button
-                        type="button"
-                        className="primary-button compact-button"
-                        disabled={!hasManualRuleText}
-                        onClick={() => handleAddManualRules(entry, "EntryTitle")}
-                      >
-                        Add Title Rule
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost-button compact-button"
-                        disabled={!hasManualRuleText}
-                        onClick={() => handleAddManualRules(entry, "EntryContent")}
-                      >
-                        Add Content Rule
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost-button compact-button"
-                        disabled={!hasManualRuleText}
-                        onClick={() => handleAddManualRules(entry, ["EntryTitle", "EntryContent"])}
-                      >
-                        Add Both Rules
-                      </button>
-                    </div>
-                  </div>
 
                   {entry.tags && entry.tags.length > 0 ? (
                     <div className="starred-card__tags">
