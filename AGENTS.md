@@ -66,6 +66,7 @@ The browser holds the Miniflux API token in session storage only. The Express se
 - Keep `.env` files out of Git.
 - Restrict the proxy in production with `MINIFLUX_ALLOWED_HOSTS`.
 - Automatic dedupe uses `MINIFLUX_BASE_URL` and `MINIFLUX_API_TOKEN` from the server `.env`; never expose or log that token.
+- Failed-feed notifications use the same server-side Miniflux token plus `NTFY_ACCESS_TOKEN`; never expose or log either token.
 - Do not log API tokens.
 
 ## Deployment notes
@@ -82,7 +83,8 @@ The browser holds the Miniflux API token in session storage only. The Express se
 - The VPS should keep only `/opt/stacks/flux-filters/docker-compose.yaml` and `/opt/stacks/flux-filters/.env`; do not build from source there once image deployment is working.
 - Runtime secrets belong in the VPS `.env` file, not in GitHub workflow files or the Docker image.
 - Automatic dedupe is opt-in with `DEDUPE_AUTOMATION_ENABLED=true`, runs every `DEDUPE_INTERVAL_MINUTES`, checks unread entries from `DEDUPE_WINDOW_DAYS`, and stores its audit log at `DEDUPE_AUDIT_PATH`.
-- The Docker Compose files mount `flux-filters-data` at `/data` so the dedupe audit log survives container restarts while the root filesystem remains read-only.
+- Failed-feed ntfy notifications are opt-in with `FAILED_FEEDS_NOTIFICATION_ENABLED=true`, publish to `NTFY_TOPIC`, and store change-detection state at `FAILED_FEEDS_STATE_PATH`.
+- The Docker Compose files mount `flux-filters-data` at `/data` so the dedupe audit log and failed-feed notification state survive container restarts while the root filesystem remains read-only.
 
 ## Project constraints and rules
 

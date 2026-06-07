@@ -64,6 +64,12 @@ DEDUPE_WINDOW_DAYS=7
 DEDUPE_AUDIT_PATH=/data/dedupe-audit.jsonl
 MINIFLUX_BASE_URL=
 MINIFLUX_API_TOKEN=
+FAILED_FEEDS_NOTIFICATION_ENABLED=false
+FAILED_FEEDS_INTERVAL_MINUTES=60
+FAILED_FEEDS_STATE_PATH=/data/failed-feeds-notification-state.json
+NTFY_BASE_URL=
+NTFY_TOPIC=miniflux
+NTFY_ACCESS_TOKEN=
 ```
 
 Environment notes:
@@ -76,6 +82,12 @@ Environment notes:
 - `DEDUPE_AUDIT_PATH` - where Flux Filters stores the JSONL audit log of marked-read duplicate groups.
 - `MINIFLUX_BASE_URL` - Miniflux server URL used by the automatic dedupe job.
 - `MINIFLUX_API_TOKEN` - Miniflux API token used by the automatic dedupe job. Keep this only in `.env` on the server.
+- `FAILED_FEEDS_NOTIFICATION_ENABLED` - set to `true` to send ntfy alerts when Miniflux reports failed feeds.
+- `FAILED_FEEDS_INTERVAL_MINUTES` - how often failed feeds are checked. `60` is recommended.
+- `FAILED_FEEDS_STATE_PATH` - where Flux Filters stores the last notified failed-feed state to avoid repeated alerts.
+- `NTFY_BASE_URL` - ntfy server URL used for failed-feed notifications.
+- `NTFY_TOPIC` - ntfy topic used for failed-feed notifications.
+- `NTFY_ACCESS_TOKEN` - ntfy bearer token used for publishing notifications. Keep this only in `.env` on the server.
 
 ## Test Locally
 
@@ -151,6 +163,12 @@ For most Docker-based deployments:
    DEDUPE_AUDIT_PATH=/data/dedupe-audit.jsonl
    MINIFLUX_BASE_URL=https://<your-miniflux-host>
    MINIFLUX_API_TOKEN=<server-side-miniflux-token>
+   FAILED_FEEDS_NOTIFICATION_ENABLED=true
+   FAILED_FEEDS_INTERVAL_MINUTES=60
+   FAILED_FEEDS_STATE_PATH=/data/failed-feeds-notification-state.json
+   NTFY_BASE_URL=https://<your-ntfy-host>
+   NTFY_TOPIC=miniflux
+   NTFY_ACCESS_TOKEN=<server-side-ntfy-token>
    ```
 
 5. Create the external Docker network or use an existing one. If you use an existing network, update the `docker-compose.prod.yaml` file accordingly.
@@ -178,6 +196,7 @@ After deployment, verify:
 - The app can reach the expected Miniflux host.
 - Existing rules can still be fetched and saved.
 - The Duplicates page shows the last 7 days of articles Flux Filters marked read.
+- Failed-feed notifications publish to the configured ntfy topic when Miniflux reports a changed set of failed feeds.
 
 ## AI-Assisted Development
 

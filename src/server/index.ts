@@ -16,6 +16,9 @@ const port = Number(process.env.PORT || 3000);
 const clientDist = path.resolve(process.cwd(), "dist/client");
 const dedupeAuditPath =
   process.env.DEDUPE_AUDIT_PATH || path.resolve(process.cwd(), "data/dedupe-audit.jsonl");
+const failedFeedsStatePath =
+  process.env.FAILED_FEEDS_STATE_PATH ||
+  path.resolve(process.cwd(), "data/failed-feeds-notification-state.json");
 
 app.use(express.json({ limit: "1mb" }));
 
@@ -38,6 +41,34 @@ interface DedupeJobConfig {
   intervalMinutes: number;
   windowDays: number;
   session: SessionPayload | null;
+}
+
+interface NtfyConfig {
+  baseUrl: string;
+  topic: string;
+  accessToken: string;
+}
+
+interface FailedFeedsJobConfig {
+  enabled: boolean;
+  intervalMinutes: number;
+  session: SessionPayload | null;
+  ntfy: NtfyConfig | null;
+}
+
+interface FailedFeedNotificationState {
+  signature: string;
+  notifiedAt: string;
+}
+
+interface FailedFeedSummary {
+  id: number;
+  title: string;
+  feedUrl: string;
+  siteUrl: string;
+  checkedAt: string | null;
+  errorCount: number;
+  errorMessage: string;
 }
 
 async function mapWithConcurrency<T, R>(
@@ -94,6 +125,11 @@ function normaliseServerUrl(input: string): string {
 function joinUpstreamUrl(baseUrl: string, endpoint: string): string {
   const url = new URL(baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
   return new URL(endpoint.replace(/^\//, ""), url).toString();
+}
+
+function joinNtfyTopicUrl(config: NtfyConfig): string {
+  const baseUrl = config.baseUrl.endsWith("/") ? config.baseUrl : `${config.baseUrl}/`;
+  return new URL(encodeURIComponent(config.topic), baseUrl).toString();
 }
 
 function getSessionFromHeaders(request: express.Request): SessionPayload {
@@ -238,6 +274,50 @@ function getDedupeJobConfig(): DedupeJobConfig {
   };
 }
 
+function getServerMinifluxSession(): SessionPayload | null {
+  const serverUrl = process.env.MINIFLUX_BASE_URL || "";
+  const apiToken = process.env.MINIFLUX_API_TOKEN || "";
+
+  if (!serverUrl || !apiToken) {
+    return null;
+  }
+
+  return {
+    serverUrl: normaliseServerUrl(serverUrl),
+    apiToken
+  };
+}
+
+function getNtfyConfig(): NtfyConfig | null {
+  const baseUrl = process.env.NTFY_BASE_URL?.trim() || "";
+  const topic = process.env.NTFY_TOPIC?.trim() || "";
+  const accessToken = process.env.NTFY_ACCESS_TOKEN?.trim() || "";
+
+  if (!baseUrl || !topic || !accessToken) {
+    return null;
+  }
+
+  const url = new URL(baseUrl);
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("Only http and https ntfy addresses are supported.");
+  }
+
+  return {
+    baseUrl: `${url.origin}${url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname}`,
+    topic,
+    accessToken
+  };
+}
+
+function getFailedFeedsJobConfig(): FailedFeedsJobConfig {
+  return {
+    enabled: process.env.FAILED_FEEDS_NOTIFICATION_ENABLED === "true",
+    intervalMinutes: getPositiveIntegerEnv("FAILED_FEEDS_INTERVAL_MINUTES", 60, 5, 1440),
+    session: getServerMinifluxSession(),
+    ntfy: getNtfyConfig()
+  };
+}
+
 function createAuditRun(mode: DedupeAuditRun["mode"], preview: DedupePreview): DedupeAuditRun {
   return {
     id: globalThis.crypto.randomUUID(),
@@ -317,6 +397,130 @@ async function runDedupeJob(
   return run;
 }
 
+function isFailedFeed(feed: MinifluxFeed): boolean {
+  return (feed.parsing_error_count ?? 0) > 0 || Boolean(feed.parsing_error_message?.trim());
+}
+
+function summariseFailedFeed(feed: MinifluxFeed): FailedFeedSummary {
+  return {
+    id: feed.id,
+    title: feed.title,
+    feedUrl: feed.feed_url,
+    siteUrl: feed.site_url,
+    checkedAt: feed.checked_at ?? null,
+    errorCount: feed.parsing_error_count ?? 0,
+    errorMessage: feed.parsing_error_message?.trim() || "Miniflux did not provide an error message."
+  };
+}
+
+function createFailedFeedsSignature(feeds: FailedFeedSummary[]): string {
+  return feeds
+    .map((feed) => [feed.id, feed.errorCount, feed.errorMessage].join(":"))
+    .sort((left, right) => left.localeCompare(right, "en-GB", { sensitivity: "base" }))
+    .join("|");
+}
+
+async function readFailedFeedsNotificationState(): Promise<FailedFeedNotificationState | null> {
+  try {
+    return JSON.parse(await fs.readFile(failedFeedsStatePath, "utf8")) as FailedFeedNotificationState;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+async function writeFailedFeedsNotificationState(signature: string): Promise<void> {
+  await fs.mkdir(path.dirname(failedFeedsStatePath), { recursive: true });
+  await fs.writeFile(
+    failedFeedsStatePath,
+    JSON.stringify(
+      {
+        signature,
+        notifiedAt: new Date().toISOString()
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+}
+
+async function fetchFailedFeeds(session: SessionPayload): Promise<FailedFeedSummary[]> {
+  const feeds = await minifluxRequest<MinifluxFeed[]>(session, "/v1/feeds");
+  const failedFeeds = await mapWithConcurrency(feeds.filter(isFailedFeed), 10, async (feed) => {
+    try {
+      return summariseFailedFeed(await minifluxRequest<MinifluxFeed>(session, `/v1/feeds/${feed.id}`));
+    } catch {
+      return summariseFailedFeed(feed);
+    }
+  });
+
+  return failedFeeds
+    .filter((feed) => feed.errorCount > 0 || feed.errorMessage !== "Miniflux did not provide an error message.")
+    .sort((left, right) => left.title.localeCompare(right.title, "en-GB", { sensitivity: "base" }));
+}
+
+function formatFailedFeedsMessage(feeds: FailedFeedSummary[]): string {
+  const visibleFeeds = feeds.slice(0, 8);
+  const lines = visibleFeeds.flatMap((feed) => [
+    `${feed.title} (#${feed.id})`,
+    `Error: ${feed.errorMessage}`,
+    `Feed: ${feed.feedUrl}`,
+    feed.checkedAt ? `Checked: ${feed.checkedAt}` : "Checked: unknown",
+    ""
+  ]);
+
+  if (feeds.length > visibleFeeds.length) {
+    lines.push(`...and ${feeds.length - visibleFeeds.length} more failed feeds.`);
+  }
+
+  return lines.join("\n").trim();
+}
+
+async function publishFailedFeedsNotification(config: NtfyConfig, feeds: FailedFeedSummary[]): Promise<void> {
+  const title =
+    feeds.length === 1 ? "Miniflux feed failing" : `${feeds.length} Miniflux feeds failing`;
+  const response = await fetch(joinNtfyTopicUrl(config), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.accessToken}`,
+      Title: title,
+      Priority: feeds.length >= 5 ? "high" : "default",
+      Tags: "warning,rss"
+    },
+    body: formatFailedFeedsMessage(feeds)
+  });
+
+  if (!response.ok) {
+    throw new Error(`ntfy publish failed with status ${response.status}.`);
+  }
+}
+
+async function runFailedFeedsNotificationJob(
+  session: SessionPayload,
+  ntfy: NtfyConfig
+): Promise<FailedFeedSummary[]> {
+  const failedFeeds = await fetchFailedFeeds(session);
+  const signature = createFailedFeedsSignature(failedFeeds);
+  const state = await readFailedFeedsNotificationState();
+
+  if (state?.signature === signature) {
+    return [];
+  }
+
+  if (failedFeeds.length === 0) {
+    await writeFailedFeedsNotificationState(signature);
+    return [];
+  }
+
+  await publishFailedFeedsNotification(ntfy, failedFeeds);
+  await writeFailedFeedsNotificationState(signature);
+  return failedFeeds;
+}
+
 function filterPreviewForEntryIds(preview: DedupePreview, entryIds: number[]): DedupePreview {
   const requestedEntryIds = new Set(entryIds);
   const groups = preview.groups
@@ -385,6 +589,64 @@ function startDedupeScheduler() {
   console.log(
     `Dedupe automation enabled: every ${config.intervalMinutes} minutes, ${config.windowDays}-day window.`
   );
+}
+
+function startFailedFeedsNotificationScheduler() {
+  let config: FailedFeedsJobConfig;
+
+  try {
+    config = getFailedFeedsJobConfig();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : "Unable to configure failed-feed notifications.");
+    return;
+  }
+
+  if (!config.enabled) {
+    return;
+  }
+
+  if (!config.session) {
+    console.error(
+      "Failed-feed notifications are enabled but MINIFLUX_BASE_URL or MINIFLUX_API_TOKEN is missing."
+    );
+    return;
+  }
+
+  if (!config.ntfy) {
+    console.error("Failed-feed notifications are enabled but ntfy configuration is incomplete.");
+    return;
+  }
+
+  const intervalMs = config.intervalMinutes * 60 * 1000;
+  let running = false;
+
+  async function runScheduledJob() {
+    if (running || !config.session || !config.ntfy) {
+      return;
+    }
+
+    running = true;
+
+    try {
+      const notifiedFeeds = await runFailedFeedsNotificationJob(config.session, config.ntfy);
+
+      if (notifiedFeeds.length > 0) {
+        console.log(`Failed-feed notifications sent for ${notifiedFeeds.length} feeds.`);
+      }
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : "Failed-feed notifications failed.");
+    } finally {
+      running = false;
+    }
+  }
+
+  setTimeout(() => {
+    void runScheduledJob();
+  }, 20_000);
+  setInterval(() => {
+    void runScheduledJob();
+  }, intervalMs);
+  console.log(`Failed-feed notifications enabled: every ${config.intervalMinutes} minutes.`);
 }
 
 function sendError(response: express.Response, error: unknown) {
@@ -650,4 +912,5 @@ app.use((request, response, next) => {
 app.listen(port, () => {
   console.log(`Flux Filters listening on port ${port}`);
   startDedupeScheduler();
+  startFailedFeedsNotificationScheduler();
 });
