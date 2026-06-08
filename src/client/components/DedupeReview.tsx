@@ -52,7 +52,7 @@ export default function DedupeReview({
         <div>
           <BackButton onClick={onBack} />
           <p className="eyebrow">Recent duplicate review</p>
-          <h2>Duplicate articles</h2>
+          <h2>Filtered articles</h2>
           <p>
             Flux Filters checks read and unread articles from the last 7 days, keeps the oldest
             article in each group, and marks newer unread high-confidence duplicates as read.
