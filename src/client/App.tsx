@@ -955,6 +955,7 @@ export default function App() {
             {!loadingFeeds && !loadingSelectedFeed && selectedFeed ? (
               <RuleEditor
                 feed={selectedFeed}
+                minifluxServerUrl={session.serverUrl}
                 activeTab={activeTab}
                 onTabChange={setActiveTab}
                 blockRules={draftState.blockRules}

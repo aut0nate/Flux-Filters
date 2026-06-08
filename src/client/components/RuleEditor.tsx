@@ -37,6 +37,7 @@ type RuleWarning =
 
 interface RuleEditorProps {
   feed: MinifluxFeed;
+  minifluxServerUrl: string;
   activeTab: RuleTab;
   onTabChange: (tab: RuleTab) => void;
   blockRules: RuleDraft[];
@@ -158,8 +159,18 @@ function getNextCaseInsensitiveValue(rule: RuleDraft, nextField: RuleDraft["fiel
   return rule.caseInsensitive;
 }
 
+function joinMinifluxUrl(serverUrl: string, path: string): string {
+  const base = new URL(serverUrl.endsWith("/") ? serverUrl : `${serverUrl}/`);
+  return new URL(path.replace(/^\//, ""), base).toString();
+}
+
+function getFeedEntriesUrl(serverUrl: string, feedId: number): string {
+  return joinMinifluxUrl(serverUrl, `/feed/${feedId}/entries`);
+}
+
 export default function RuleEditor({
   feed,
+  minifluxServerUrl,
   activeTab,
   onTabChange,
   blockRules,
@@ -251,7 +262,16 @@ export default function RuleEditor({
       <div className="editor-header">
         <div>
           <p className="eyebrow">Selected Feed</p>
-          <h2>{feed.title}</h2>
+          <h2>
+            <a
+              className="editor-header__feed-link"
+              href={getFeedEntriesUrl(minifluxServerUrl, feed.id)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {feed.title}
+            </a>
+          </h2>
           <p className="subtle">{feed.feed_url}</p>
         </div>
 
