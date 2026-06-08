@@ -808,6 +808,13 @@ function formatDedupeStage(stage: DedupeGroup["stage"]): string {
     .join(" ");
 }
 
+function formatEntryStatus(status: DedupeGroup["keeper"]["status"]): string {
+  return status
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 function formatEntryLine(prefix: string, entry: DedupeGroup["keeper"]): string {
   const feedTitle = entry.feedTitle ? ` (${entry.feedTitle})` : "";
   return `${prefix}: ${entry.title}${feedTitle}\n${entry.url}`;
@@ -818,16 +825,15 @@ function formatFilteredEntriesMessage(run: DedupeAuditRun): string {
   const lines = visibleGroups.flatMap((group, index) => {
     const duplicateLines = group.duplicates
       .slice(0, 3)
-      .flatMap((entry) => [formatEntryLine("Filtered", entry), ""]);
+      .flatMap((entry) => [formatEntryLine("Filtered out", entry), ""]);
 
     if (group.duplicates.length > 3) {
       duplicateLines.push(`...and ${group.duplicates.length - 3} more filtered articles in this group.`, "");
     }
 
     return [
-      `Match ${index + 1}: ${formatDedupeStage(group.stage)} (${Math.round(group.score * 100)}%)`,
-      group.reason,
-      formatEntryLine(`Kept ${group.keeper.status}`, group.keeper),
+      `Filter ${index + 1}: ${formatDedupeStage(group.stage)}`,
+      formatEntryLine(`Kept ${formatEntryStatus(group.keeper.status)}`, group.keeper),
       "",
       ...duplicateLines
     ];

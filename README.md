@@ -243,7 +243,7 @@ After deployment, verify:
 - The public homepage loads.
 - The app can reach the expected Miniflux host.
 - Existing rules can still be fetched and saved.
-- The Duplicates page shows the last 7 days of articles Flux Filters marked read.
+- The Filters page shows the last 7 days of articles Flux Filters marked read.
 - Failed-feed notifications publish to the configured ntfy topic when Miniflux reports a changed set of failed feeds.
 
 ## AI-Assisted Development

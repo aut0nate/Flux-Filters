@@ -854,7 +854,7 @@ export default function App() {
             className="ghost-button"
             onClick={handleShowDedupe}
           >
-            Duplicates
+            Filters
           </button>
           <button
             type="button"
