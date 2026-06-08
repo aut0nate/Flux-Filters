@@ -52,11 +52,11 @@ export default function DedupeReview({
           <button type="button" className="ghost-button" onClick={onBack}>
             Back to dashboard
           </button>
-          <p className="eyebrow">Unread duplicate review</p>
+          <p className="eyebrow">Recent duplicate review</p>
           <h2>Duplicate articles</h2>
           <p>
-            Flux Filters checks unread articles from the last 7 days, keeps the oldest article in
-            each group, and marks newer high-confidence duplicates as read.
+            Flux Filters checks read and unread articles from the last 7 days, keeps the oldest
+            article in each group, and marks newer unread high-confidence duplicates as read.
           </p>
         </div>
         <div className="panel-heading__actions">
@@ -78,17 +78,17 @@ export default function DedupeReview({
       {message ? <div className="form-success">{message}</div> : null}
 
       {!preview && !loading ? (
-        <div className="empty-state">Run a preview to find duplicate unread articles.</div>
+        <div className="empty-state">Run a preview to find recent duplicate articles.</div>
       ) : null}
 
-      {loading && !preview ? <div className="empty-state">Checking unread articles…</div> : null}
+      {loading && !preview ? <div className="empty-state">Checking recent articles…</div> : null}
 
       {preview ? (
         <>
           <div className="dedupe-summary">
             <div>
-              <span>{preview.totalUnreadEntries}</span>
-              <p>Unread checked</p>
+              <span>{preview.totalCheckedEntries ?? preview.totalUnreadEntries}</span>
+              <p>Recent checked</p>
             </div>
             <div>
               <span>{preview.groups.length}</span>
@@ -119,7 +119,7 @@ export default function DedupeReview({
                   </div>
 
                   <div className="dedupe-entry dedupe-entry--keeper">
-                    <span className="dedupe-entry__label">Keep unread</span>
+                    <span className="dedupe-entry__label">Keep {group.keeper.status}</span>
                     <EntrySummary entry={group.keeper} />
                   </div>
 
@@ -159,7 +159,7 @@ export default function DedupeReview({
                     <h3>{formatDate(run.createdAt)}</h3>
                     <p>
                       {run.mode === "automatic" ? "Automatic run" : "Manual run"} |{" "}
-                      {run.markedReadCount} marked read | {run.totalUnreadEntries} unread checked
+                      {run.markedReadCount} marked read | {run.totalCheckedEntries ?? run.totalUnreadEntries} recent checked
                       {run.llm ? ` | ${formatLlmSummary(run.llm)}` : ""}
                     </p>
                   </div>
@@ -182,7 +182,7 @@ export default function DedupeReview({
                     </div>
 
                     <div className="dedupe-entry dedupe-entry--keeper">
-                      <span className="dedupe-entry__label">Kept unread</span>
+                      <span className="dedupe-entry__label">Kept {group.keeper.status}</span>
                       <EntrySummary entry={group.keeper} />
                     </div>
 

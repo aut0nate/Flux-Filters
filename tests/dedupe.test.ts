@@ -249,10 +249,85 @@ describe("Miniflux dedupe helpers", () => {
     expect(preview.markReadEntryIds).toHaveLength(0);
   });
 
-  it("ignores read entries", () => {
+  it("uses a read URL match as the keeper and marks the newer unread duplicate", () => {
+    const preview = createDedupePreview([
+      createEntry({
+        id: 1,
+        status: "read",
+        url: "https://example.com/article",
+        published_at: "2026-06-01T10:00:00Z"
+      }),
+      createEntry({
+        id: 2,
+        url: "https://example.com/article?utm_medium=email",
+        published_at: "2026-06-02T10:00:00Z"
+      })
+    ]);
+
+    expect(preview.groups).toHaveLength(1);
+    expect(preview.groups[0]).toMatchObject({
+      stage: "url",
+      keeper: { id: 1, status: "read" },
+      duplicates: [{ id: 2, status: "unread" }]
+    });
+    expect(preview.totalCheckedEntries).toBe(2);
+    expect(preview.totalUnreadEntries).toBe(1);
+    expect(preview.markReadEntryIds).toEqual([2]);
+  });
+
+  it("uses a read title match as the keeper and marks the newer unread duplicate", () => {
+    const preview = createDedupePreview([
+      createEntry({
+        id: 1,
+        status: "read",
+        title: "OpenAI plans ChatGPT superapp overhaul",
+        url: "https://example.com/read",
+        published_at: "2026-06-01T10:00:00Z"
+      }),
+      createEntry({
+        id: 2,
+        title: " openai   plans chatgpt superapp overhaul ",
+        url: "https://example.com/unread",
+        published_at: "2026-06-02T10:00:00Z"
+      })
+    ]);
+
+    expect(preview.groups[0]).toMatchObject({
+      stage: "title",
+      keeper: { id: 1, status: "read" },
+      duplicates: [{ id: 2, status: "unread" }]
+    });
+    expect(preview.markReadEntryIds).toEqual([2]);
+  });
+
+  it("uses a read similar title as the keeper and marks the newer unread duplicate", () => {
+    const preview = createDedupePreview([
+      createEntry({
+        id: 1,
+        status: "read",
+        title: "OpenAI Overhauls ChatGPT Into 'Superapp' Ahead of Listing",
+        published_at: "2026-06-01T10:00:00Z"
+      }),
+      createEntry({
+        id: 2,
+        title: "OpenAI plans ChatGPT 'superapp' overhaul ahead of listing, FT reports",
+        url: "https://example.net/openai",
+        published_at: "2026-06-05T10:00:00Z"
+      })
+    ]);
+
+    expect(preview.groups[0]).toMatchObject({
+      stage: "similar-title",
+      keeper: { id: 1, status: "read" },
+      duplicates: [{ id: 2, status: "unread" }]
+    });
+    expect(preview.markReadEntryIds).toEqual([2]);
+  });
+
+  it("does not propose action when every duplicate is already read", () => {
     const preview = createDedupePreview([
       createEntry({ id: 1, status: "read" }),
-      createEntry({ id: 2, url: "https://example.com/article?utm_medium=email" })
+      createEntry({ id: 2, status: "read", url: "https://example.com/article?utm_medium=email" })
     ]);
 
     expect(preview.groups).toHaveLength(0);

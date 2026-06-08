@@ -12,7 +12,7 @@ It is for Miniflux users who want an easier way to manage regex filters without 
 
 - View feeds and see which ones already have rules
 - Review starred Miniflux entries as filter candidates
-- Review duplicate unread entries across feeds before marking newer matches as read
+- Review recent duplicate entries across feeds before marking newer unread matches as read
 - Optionally run duplicate cleanup automatically and review the last 7 days of actions
 - Create draft block rules from starred entry titles, authors, tags, or URLs
 - Create block and allow rules using regex
@@ -86,9 +86,9 @@ Environment notes:
 
 - `PORT` - controls which port the Express server uses. The default is `3000`.
 - `MINIFLUX_ALLOWED_HOSTS` - limits which Miniflux hostnames the proxy will talk to.
-- `DEDUPE_AUTOMATION_ENABLED` - set to `true` to run unread duplicate cleanup automatically.
+- `DEDUPE_AUTOMATION_ENABLED` - set to `true` to run recent duplicate cleanup automatically, marking newer unread matches as read.
 - `DEDUPE_INTERVAL_MINUTES` - how often the automatic dedupe job runs. `30` is recommended.
-- `DEDUPE_WINDOW_DAYS` - how far back unread entries are compared. The intended value is `7`.
+- `DEDUPE_WINDOW_DAYS` - how far back read and unread entries are compared. The intended value is `7`.
 - `DEDUPE_AUDIT_PATH` - where Flux Filters stores the JSONL audit log of marked-read duplicate groups.
 - `DEDUPE_CONFIG_PATH` - optional JSON file for overriding dedupe scoring words and thresholds without editing code.
 - `DEDUPE_SIMILAR_TITLE_THRESHOLD` - deterministic similar-title score required before an article is marked read.
