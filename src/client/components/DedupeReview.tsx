@@ -29,11 +29,20 @@ const STAGE_LABELS: Record<DedupeGroup["stage"], string> = {
   "semantic-title": "Semantic Title"
 };
 
-function formatStatus(value: DedupeEntrySummary["status"]): string {
+function formatStatus(value: DedupeEntrySummary["status"] | undefined): string {
+  if (!value) {
+    return "";
+  }
+
   return value
     .split("_")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+function formatEntryAction(action: "Keep" | "Kept", status: DedupeEntrySummary["status"] | undefined): string {
+  const formattedStatus = formatStatus(status);
+  return formattedStatus ? `${action} ${formattedStatus}` : action;
 }
 
 export default function DedupeReview({
@@ -125,7 +134,7 @@ export default function DedupeReview({
                   </div>
 
                   <div className="dedupe-entry dedupe-entry--keeper">
-                    <span className="dedupe-entry__label">Keep {formatStatus(group.keeper.status)}</span>
+                    <span className="dedupe-entry__label">{formatEntryAction("Keep", group.keeper.status)}</span>
                     <EntrySummary entry={group.keeper} />
                   </div>
 
@@ -188,7 +197,7 @@ export default function DedupeReview({
                     </div>
 
                     <div className="dedupe-entry dedupe-entry--keeper">
-                      <span className="dedupe-entry__label">Kept {formatStatus(group.keeper.status)}</span>
+                      <span className="dedupe-entry__label">{formatEntryAction("Kept", group.keeper.status)}</span>
                       <EntrySummary entry={group.keeper} />
                     </div>
 
