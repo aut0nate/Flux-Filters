@@ -342,13 +342,13 @@ async function loadDedupeConfig(): Promise<DedupeRuntimeConfig> {
     ...deterministicConfig,
     llmCandidateMinScore: getNumberEnv(
       "DEDUPE_LLM_CANDIDATE_MIN_SCORE",
-      fileConfig.llmCandidateMinScore ?? 0.35,
+      fileConfig.llmCandidateMinScore ?? 0.45,
       0,
       1
     ),
     llmAutoMatchConfidence: getNumberEnv(
       "DEDUPE_LLM_AUTO_CONFIDENCE",
-      fileConfig.llmAutoMatchConfidence ?? 0.85,
+      fileConfig.llmAutoMatchConfidence ?? 0.93,
       0,
       1
     ),
@@ -668,10 +668,7 @@ async function createSemanticTitleCandidates(
       }
 
       const localScore = scoreSimilarTitles(left.title, right.title, dedupeConfig);
-      if (
-        localScore < dedupeConfig.llmCandidateMinScore ||
-        localScore >= dedupeConfig.similarTitleThreshold
-      ) {
+      if (localScore < dedupeConfig.llmCandidateMinScore) {
         continue;
       }
 
@@ -698,7 +695,7 @@ async function requestSemanticTitleDecision(
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://flux-filters.autonate.dev",
+      "HTTP-Referer": "https://fluxfilters.autonate.dev",
       "X-Title": "Flux Filters"
     },
     body: JSON.stringify({
@@ -709,18 +706,20 @@ async function requestSemanticTitleDecision(
         {
           role: "system",
           content:
-            "You compare two RSS article titles. Return compact JSON only: same_story boolean, confidence number from 0 to 1, and reason string. same_story is true only when both titles describe the same news event or materially the same article angle. Shared broad topics, tournaments, countries, clubs, or people are not enough."
+            "You compare two RSS articles for deduplication. Return compact JSON only: same_story boolean, confidence number from 0 to 1, and reason string. Be strict. same_story is true only when both articles are about the same specific event, announcement, report, match, transfer, court case, road closure, injury, death, product release, or materially identical article angle. Reject matches when they only share a person, team, place, league, tournament, company, broad topic, date window, or feed category. Reject roundups, live blogs, list articles, previews, explainers, opinion pieces, and background profiles unless both titles clearly point to the same specific item within them. If one article is about a different action, outcome, location, organisation, or time, return same_story false. Use confidence >= 0.93 only for near-certain duplicates."
         },
         {
           role: "user",
           content: JSON.stringify({
             article_a: {
               title: candidate.keeper.title,
+              url: candidate.keeper.url,
               feed: candidate.keeper.feed?.title ?? `Feed ${candidate.keeper.feed_id}`,
               published_at: candidate.keeper.published_at
             },
             article_b: {
               title: candidate.duplicate.title,
+              url: candidate.duplicate.url,
               feed: candidate.duplicate.feed?.title ?? `Feed ${candidate.duplicate.feed_id}`,
               published_at: candidate.duplicate.published_at
             },
@@ -1064,14 +1063,11 @@ function startDedupeScheduler() {
     }
   }
 
-  setTimeout(() => {
-    void runScheduledJob();
-  }, 15_000);
   setInterval(() => {
     void runScheduledJob();
   }, intervalMs);
   console.log(
-    `Dedupe automation enabled: every ${config.intervalMinutes} minutes, ${config.windowDays}-day window.`
+    `Dedupe automation enabled: every ${config.intervalMinutes} minutes, ${config.windowDays}-day window. First run in ${config.intervalMinutes} minutes.`
   );
 }
 
