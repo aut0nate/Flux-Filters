@@ -147,7 +147,7 @@ describe("Miniflux dedupe helpers", () => {
     });
   });
 
-  it("uses similar titles within the configured window", () => {
+  it("does not mark similar titles in the deterministic preview", () => {
     const preview = createDedupePreview([
       createEntry({
         id: 1,
@@ -162,14 +162,11 @@ describe("Miniflux dedupe helpers", () => {
       })
     ]);
 
-    expect(preview.groups[0]).toMatchObject({
-      stage: "similar-title",
-      keeper: { id: 1 },
-      duplicates: [{ id: 2 }]
-    });
+    expect(preview.groups).toHaveLength(0);
+    expect(preview.markReadEntryIds).toHaveLength(0);
   });
 
-  it("groups broader cross-feed stories about the same named subject", () => {
+  it("leaves broader cross-feed stories about the same named subject for semantic review", () => {
     const preview = createDedupePreview([
       createEntry({
         id: 1,
@@ -211,11 +208,8 @@ describe("Miniflux dedupe helpers", () => {
       })
     ]);
 
-    expect(preview.groups[0]).toMatchObject({
-      stage: "similar-title",
-      keeper: { id: 1 },
-      duplicates: [{ id: 2 }, { id: 3 }]
-    });
+    expect(preview.groups).toHaveLength(0);
+    expect(preview.markReadEntryIds).toHaveLength(0);
   });
 
   it("does not group unrelated World Cup stories from the same time window", () => {
@@ -300,7 +294,7 @@ describe("Miniflux dedupe helpers", () => {
     expect(preview.markReadEntryIds).toEqual([2]);
   });
 
-  it("uses a read similar title as the keeper and marks the newer unread duplicate", () => {
+  it("does not use read similar titles as automatic keepers", () => {
     const preview = createDedupePreview([
       createEntry({
         id: 1,
@@ -316,12 +310,88 @@ describe("Miniflux dedupe helpers", () => {
       })
     ]);
 
-    expect(preview.groups[0]).toMatchObject({
-      stage: "similar-title",
-      keeper: { id: 1, status: "read" },
-      duplicates: [{ id: 2, status: "unread" }]
-    });
-    expect(preview.markReadEntryIds).toEqual([2]);
+    expect(preview.groups).toHaveLength(0);
+    expect(preview.markReadEntryIds).toHaveLength(0);
+  });
+
+  it("does not auto-match articles that only share places, people, or teams", () => {
+    const preview = createDedupePreview([
+      createEntry({
+        id: 1,
+        title: "Corby to Market Harborough road closure warning for East Carlton Park access",
+        feed: {
+          id: 10,
+          title: "Northamptonshire Telegraph",
+          feed_url: "https://www.northantstelegraph.co.uk/rss",
+          site_url: "https://www.northantstelegraph.co.uk"
+        },
+        published_at: "2026-06-01T10:25:00Z"
+      }),
+      createEntry({
+        id: 2,
+        title:
+          "Who's been sentenced featuring Corby, Isham, Burton Latimer, Kettering, Rothwell, Wellingborough, Market Harborough, Denford, Rugby and Easton On The Hill",
+        url: "https://example.com/sentenced",
+        feed: {
+          id: 10,
+          title: "Northamptonshire Telegraph",
+          feed_url: "https://www.northantstelegraph.co.uk/rss",
+          site_url: "https://www.northantstelegraph.co.uk"
+        },
+        published_at: "2026-06-07T18:18:00Z"
+      }),
+      createEntry({
+        id: 3,
+        title: "Rodri insists he will address his future after World Cup amid Real Madrid links",
+        url: "https://example.com/rodri",
+        feed: {
+          id: 20,
+          title: "The Guardian - Football",
+          feed_url: "https://www.theguardian.com/football/rss",
+          site_url: "https://www.theguardian.com/football"
+        },
+        published_at: "2026-06-01T19:09:00Z"
+      }),
+      createEntry({
+        id: 4,
+        title: "Jose Mourinho set for Real Madrid after Florentino Perez re-election",
+        url: "https://example.com/mourinho",
+        feed: {
+          id: 30,
+          title: "BBC Sport - Football",
+          feed_url: "https://feeds.bbci.co.uk/sport/football/rss.xml",
+          site_url: "https://www.bbc.co.uk/sport/football"
+        },
+        published_at: "2026-06-08T07:58:00Z"
+      }),
+      createEntry({
+        id: 5,
+        title: "Tottenham sign left-back Andy Robertson from Liverpool on free transfer",
+        url: "https://example.com/robertson-transfer",
+        feed: {
+          id: 30,
+          title: "BBC Sport - Football",
+          feed_url: "https://feeds.bbci.co.uk/sport/football/rss.xml",
+          site_url: "https://www.bbc.co.uk/sport/football"
+        },
+        published_at: "2026-06-05T13:52:00Z"
+      }),
+      createEntry({
+        id: 6,
+        title: "World Cup 2026: Scotland captain Andy Robertson - inside the fairytale journey",
+        url: "https://example.com/robertson-world-cup",
+        feed: {
+          id: 30,
+          title: "BBC Sport - Football",
+          feed_url: "https://feeds.bbci.co.uk/sport/football/rss.xml",
+          site_url: "https://www.bbc.co.uk/sport/football"
+        },
+        published_at: "2026-06-08T08:18:00Z"
+      })
+    ]);
+
+    expect(preview.groups).toHaveLength(0);
+    expect(preview.markReadEntryIds).toHaveLength(0);
   });
 
   it("does not propose action when every duplicate is already read", () => {

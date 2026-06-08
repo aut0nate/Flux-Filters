@@ -57,7 +57,6 @@ export interface DedupeAuditRun {
 
 interface DedupeOptions {
   windowDays?: number;
-  similarTitleThreshold?: number;
   config?: Partial<DedupeConfig>;
 }
 
@@ -266,9 +265,7 @@ export function createDedupePreview(
   entries: MinifluxEntry[],
   options: DedupeOptions = {}
 ): DedupePreview {
-  const config = normaliseDedupeConfig(options.config);
   const windowDays = options.windowDays ?? DEFAULT_WINDOW_DAYS;
-  const similarTitleThreshold = options.similarTitleThreshold ?? config.similarTitleThreshold;
   const dedupeEntries = entries
     .filter((entry) => entry.status === "read" || entry.status === "unread")
     .sort(compareEntriesOldestFirst);
@@ -293,9 +290,6 @@ export function createDedupePreview(
       "Same normalised title",
       consumedEntryIds
     )
-  );
-  groups.push(
-    ...createSimilarTitleGroups(dedupeEntries, windowDays, similarTitleThreshold, config, consumedEntryIds)
   );
 
   const markReadEntryIds = [...new Set(groups.flatMap((group) => group.duplicates.map((entry) => entry.id)))];
@@ -344,55 +338,6 @@ function createExactGroups(
       consumeGroupDuplicates(groupEntries, consumedEntryIds);
       return [group];
     });
-}
-
-function createSimilarTitleGroups(
-  entries: MinifluxEntry[],
-  windowDays: number,
-  threshold: number,
-  config: DedupeConfig,
-  consumedEntryIds: Set<number>
-): DedupeGroup[] {
-  const groups: DedupeGroup[] = [];
-  const maxWindowMs = windowDays * 24 * 60 * 60 * 1000;
-
-  for (const entry of entries) {
-    if (consumedEntryIds.has(entry.id)) {
-      continue;
-    }
-
-    const matches = entries
-      .filter((candidate) => candidate.id !== entry.id && !consumedEntryIds.has(candidate.id))
-      .map((candidate) => ({
-        entry: candidate,
-        score: scoreSimilarTitles(entry.title, candidate.title, config)
-      }))
-      .filter(({ entry: candidate, score }) => {
-        const distance = Math.abs(getEntryTime(entry) - getEntryTime(candidate));
-        return distance <= maxWindowMs && score >= threshold;
-      });
-
-    if (matches.length === 0) {
-      continue;
-    }
-
-    const groupEntries = [entry, ...matches.map((match) => match.entry)];
-    const score = Math.min(...matches.map((match) => match.score));
-    const group = createGroup(
-      "similar-title",
-      `Similar title within the ${windowDays}-day window`,
-      normaliseEntryTitle(entry.title),
-      score,
-      groupEntries
-    );
-
-    if (hasUnreadDuplicates(group)) {
-      consumeGroupDuplicates(groupEntries, consumedEntryIds);
-      groups.push(group);
-    }
-  }
-
-  return groups;
 }
 
 function createGroup(
