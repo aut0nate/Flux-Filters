@@ -25,9 +25,16 @@ interface DedupeReviewProps {
 const STAGE_LABELS: Record<DedupeGroup["stage"], string> = {
   url: "URL",
   title: "Title",
-  "similar-title": "Similar title",
-  "semantic-title": "Semantic title"
+  "similar-title": "Similar Title",
+  "semantic-title": "Semantic Title"
 };
+
+function formatStatus(value: DedupeEntrySummary["status"]): string {
+  return value
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
 
 export default function DedupeReview({
   preview,
@@ -51,8 +58,8 @@ export default function DedupeReview({
       <div className="panel-heading">
         <div>
           <BackButton onClick={onBack} />
-          <p className="eyebrow">Recent duplicate review</p>
-          <h2>Filtered articles</h2>
+          <p className="eyebrow">Recent Filter Review</p>
+          <h2>Filtered Articles</h2>
           <p>
             Flux Filters checks read and unread articles from the last 7 days, keeps the oldest
             article in each group, and marks newer unread high-confidence duplicates as read.
@@ -60,7 +67,7 @@ export default function DedupeReview({
         </div>
         <div className="panel-heading__actions">
           <button type="button" className="ghost-button" onClick={() => void onPreview()} disabled={loading || applying}>
-            {loading ? "Checking…" : "Refresh preview"}
+            {loading ? "Checking…" : "Refresh Preview"}
           </button>
           <button
             type="button"
@@ -68,7 +75,7 @@ export default function DedupeReview({
             onClick={() => void onApply()}
             disabled={loading || applying || markReadCount === 0}
           >
-            {applying ? "Marking as read…" : `Mark ${markReadCount} as read`}
+            {applying ? "Marking as Read…" : `Mark ${markReadCount} as Read`}
           </button>
         </div>
       </div>
@@ -77,25 +84,25 @@ export default function DedupeReview({
       {message ? <div className="form-success">{message}</div> : null}
 
       {!preview && !loading ? (
-        <div className="empty-state">Run a preview to find recent duplicate articles.</div>
+        <div className="empty-state">Run a Preview to Find Recent Filter Candidates.</div>
       ) : null}
 
-      {loading && !preview ? <div className="empty-state">Checking recent articles…</div> : null}
+      {loading && !preview ? <div className="empty-state">Checking Recent Articles…</div> : null}
 
       {preview ? (
         <>
           <div className="dedupe-summary">
             <div>
               <span>{preview.totalCheckedEntries ?? preview.totalUnreadEntries}</span>
-              <p>Recent checked</p>
+              <p>Recent Checked</p>
             </div>
             <div>
               <span>{preview.groups.length}</span>
-              <p>Duplicate groups</p>
+              <p>Filter Groups</p>
             </div>
             <div>
               <span>{markReadCount}</span>
-              <p>Will be marked read</p>
+              <p>Will Be Marked Read</p>
             </div>
             {preview.llm ? (
               <div>
@@ -106,7 +113,7 @@ export default function DedupeReview({
           </div>
 
           {preview.groups.length === 0 ? (
-            <div className="empty-state">No high-confidence duplicates found.</div>
+            <div className="empty-state">No High-Confidence Filter Candidates Found.</div>
           ) : (
             <div className="dedupe-groups">
               {preview.groups.map((group) => (
@@ -118,13 +125,13 @@ export default function DedupeReview({
                   </div>
 
                   <div className="dedupe-entry dedupe-entry--keeper">
-                    <span className="dedupe-entry__label">Keep {group.keeper.status}</span>
+                    <span className="dedupe-entry__label">Keep {formatStatus(group.keeper.status)}</span>
                     <EntrySummary entry={group.keeper} />
                   </div>
 
                   {group.duplicates.map((entry) => (
                     <div className="dedupe-entry" key={entry.id}>
-                      <span className="dedupe-entry__label">Mark read</span>
+                      <span className="dedupe-entry__label">Mark Read</span>
                       <EntrySummary entry={entry} />
                     </div>
                   ))}
@@ -138,15 +145,15 @@ export default function DedupeReview({
       <section className="dedupe-history">
         <div className="dedupe-history__header">
           <div>
-            <p className="eyebrow">Last 7 days</p>
-            <h2>Marked read by dedupe</h2>
+            <p className="eyebrow">Last 7 Days</p>
+            <h2>Marked Read by Dedupe</h2>
             <p>Review automatic and manual dedupe actions, then restore any false positives to unread.</p>
           </div>
-          {loadingAudit ? <span className="pill">Loading history</span> : null}
+          {loadingAudit ? <span className="pill">Loading History</span> : null}
         </div>
 
         {!loadingAudit && auditRuns.length === 0 ? (
-          <div className="empty-state">No duplicate articles have been marked read by Flux Filters yet.</div>
+          <div className="empty-state">No Filtered Articles Have Been Marked Read by Flux Filters Yet.</div>
         ) : null}
 
         {auditRuns.length > 0 ? (
@@ -158,7 +165,7 @@ export default function DedupeReview({
                     <h3>{formatDate(run.createdAt)}</h3>
                     <p>
                       {run.mode === "automatic" ? "Automatic run" : "Manual run"} |{" "}
-                      {run.markedReadCount} marked read | {run.totalCheckedEntries ?? run.totalUnreadEntries} recent checked
+                      {run.markedReadCount} Marked Read | {run.totalCheckedEntries ?? run.totalUnreadEntries} Recent Checked
                       {run.llm ? ` | ${formatLlmSummary(run.llm)}` : ""}
                     </p>
                   </div>
@@ -168,7 +175,7 @@ export default function DedupeReview({
                     disabled={run.markedReadEntryIds.some((entryId) => restoringEntryIdSet.has(entryId))}
                     onClick={() => void onRestoreEntries(run.markedReadEntryIds)}
                   >
-                    Mark run unread
+                    Mark Run Unread
                   </button>
                 </div>
 
@@ -181,13 +188,13 @@ export default function DedupeReview({
                     </div>
 
                     <div className="dedupe-entry dedupe-entry--keeper">
-                      <span className="dedupe-entry__label">Kept {group.keeper.status}</span>
+                      <span className="dedupe-entry__label">Kept {formatStatus(group.keeper.status)}</span>
                       <EntrySummary entry={group.keeper} />
                     </div>
 
                     {group.duplicates.map((entry) => (
                       <div className="dedupe-entry" key={`${run.id}-${entry.id}`}>
-                        <span className="dedupe-entry__label">Marked read</span>
+                        <span className="dedupe-entry__label">Marked Read</span>
                         <EntrySummary entry={entry} />
                         <button
                           type="button"
@@ -195,7 +202,7 @@ export default function DedupeReview({
                           disabled={restoringEntryIdSet.has(entry.id)}
                           onClick={() => void onRestoreEntries([entry.id])}
                         >
-                          Mark unread
+                          Mark Unread
                         </button>
                       </div>
                     ))}
@@ -227,11 +234,11 @@ function EntrySummary({ entry }: { entry: DedupeEntrySummary }) {
 
 function formatLlmSummary(summary: DedupeLlmSummary): string {
   if (!summary.enabled) {
-    return "LLM disabled";
+    return "LLM Disabled";
   }
 
   if (summary.error) {
-    return "LLM error";
+    return "LLM Error";
   }
 
   return `LLM checked ${summary.checkedPairs} of ${summary.candidatePairs}, matched ${summary.matchedPairs}, rejected ${summary.rejectedPairs}, skipped ${summary.skippedPairs}`;

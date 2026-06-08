@@ -9,6 +9,12 @@ import {
 } from "../../shared/miniflux";
 
 type SelectableRuleField = Extract<RuleField, "EntryTitle" | "EntryContent" | "EntryURL">;
+type SelectedRuleText = {
+  entryId: number;
+  field: SelectableRuleField;
+  label: string;
+  text: string;
+};
 
 const SELECTABLE_RULE_TEXT_SELECTOR = "[data-rule-selection-field]";
 
@@ -113,6 +119,24 @@ function getSelectionSourceElement(root: HTMLElement): HTMLElement | null {
   return sourceElement;
 }
 
+function readSelectedRuleText(root: HTMLElement): SelectedRuleText | null {
+  const sourceElement = getSelectionSourceElement(root);
+  if (!sourceElement) {
+    return null;
+  }
+
+  const entryId = Number(sourceElement.dataset.ruleSelectionEntryId);
+  const field = sourceElement.dataset.ruleSelectionField as SelectableRuleField | undefined;
+  const label = sourceElement.dataset.ruleSelectionLabel;
+  const text = getSelectedTextInside(sourceElement);
+
+  if (!entryId || !field || !label || !text) {
+    return null;
+  }
+
+  return { entryId, field, label, text };
+}
+
 function getEntryContentParagraphs(entry: MinifluxEntry): string[] {
   if (!entry.content) {
     return [];
@@ -155,50 +179,31 @@ export default function StarredQueue({
   onAddRules,
   onUnstar
 }: StarredQueueProps) {
-  const [selectedRuleText, setSelectedRuleText] = useState<{
-    entryId: number;
-    field: SelectableRuleField;
-    label: string;
-    text: string;
-  } | null>(null);
+  const [selectedRuleText, setSelectedRuleTextState] = useState<SelectedRuleText | null>(null);
   const [unstarringEntryId, setUnstarringEntryId] = useState<number | null>(null);
   const reviewPanelRef = useRef<HTMLElement | null>(null);
+  const selectedRuleTextRef = useRef<SelectedRuleText | null>(null);
 
-  const handleTextSelection = useCallback(
-    (entryId: number, element: HTMLElement, field: SelectableRuleField, label: string) => {
-      const nextText = getSelectedTextInside(element);
-      setSelectedRuleText(nextText ? { entryId, field, label, text: nextText } : null);
-    },
-    []
-  );
+  const setSelectedRuleText = useCallback((value: SelectedRuleText | null) => {
+    selectedRuleTextRef.current = value;
+    setSelectedRuleTextState(value);
+  }, []);
 
   const handleCurrentSelection = useCallback(() => {
-    if (!reviewPanelRef.current) {
+    const reviewPanel = reviewPanelRef.current;
+    if (!reviewPanel) {
       return;
     }
 
-    const sourceElement = getSelectionSourceElement(reviewPanelRef.current);
-    if (!sourceElement) {
-      setSelectedRuleText(null);
-      return;
-    }
-
-    const entryId = Number(sourceElement.dataset.ruleSelectionEntryId);
-    const field = sourceElement.dataset.ruleSelectionField as SelectableRuleField | undefined;
-    const label = sourceElement.dataset.ruleSelectionLabel;
-
-    if (!entryId || !field || !label) {
-      setSelectedRuleText(null);
-      return;
-    }
-
-    handleTextSelection(entryId, sourceElement, field, label);
-  }, [handleTextSelection]);
+    setSelectedRuleText(readSelectedRuleText(reviewPanel));
+  }, [setSelectedRuleText]);
 
   function scheduleSelectionCheck() {
     window.setTimeout(handleCurrentSelection, 0);
-    window.setTimeout(handleCurrentSelection, 250);
-    window.setTimeout(handleCurrentSelection, 750);
+    window.setTimeout(handleCurrentSelection, 150);
+    window.setTimeout(handleCurrentSelection, 400);
+    window.setTimeout(handleCurrentSelection, 900);
+    window.setTimeout(handleCurrentSelection, 1500);
   }
 
   useEffect(() => {
@@ -209,29 +214,55 @@ export default function StarredQueue({
       selectionTimer = window.setTimeout(handleCurrentSelection, 80);
     }
 
+    function handleTouchSelectionSettled() {
+      window.setTimeout(handleCurrentSelection, 80);
+      window.setTimeout(handleCurrentSelection, 400);
+      window.setTimeout(handleCurrentSelection, 900);
+    }
+
     document.addEventListener("selectionchange", handleSelectionChange);
+    document.addEventListener("pointerup", handleTouchSelectionSettled);
+    document.addEventListener("touchend", handleTouchSelectionSettled);
 
     return () => {
       window.clearTimeout(selectionTimer);
       document.removeEventListener("selectionchange", handleSelectionChange);
+      document.removeEventListener("pointerup", handleTouchSelectionSettled);
+      document.removeEventListener("touchend", handleTouchSelectionSettled);
     };
   }, [handleCurrentSelection]);
+
+  function preserveLiveSelection() {
+    const reviewPanel = reviewPanelRef.current;
+    if (!reviewPanel) {
+      return;
+    }
+
+    const liveSelection = readSelectedRuleText(reviewPanel);
+    if (liveSelection) {
+      setSelectedRuleText(liveSelection);
+    }
+  }
 
   function handleAddSelectedRule(
     entry: MinifluxEntry,
     fields: SelectableRuleField | SelectableRuleField[] | undefined = selectedRuleText?.field
   ) {
-    if (!selectedRuleText || selectedRuleText.entryId !== entry.id) {
+    const liveSelection = reviewPanelRef.current ? readSelectedRuleText(reviewPanelRef.current) : null;
+    const ruleText = liveSelection?.entryId === entry.id ? liveSelection : selectedRuleTextRef.current;
+
+    if (!ruleText || ruleText.entryId !== entry.id) {
       return;
     }
 
-    if (!fields) {
+    const selectedFieldsSource = fields ?? ruleText.field;
+    if (!selectedFieldsSource) {
       return;
     }
 
-    const selectedFields = Array.isArray(fields) ? fields : [fields];
+    const selectedFields = Array.isArray(selectedFieldsSource) ? selectedFieldsSource : [selectedFieldsSource];
     const rules = selectedFields.map((field) =>
-      createRuleDraftFromText(field, selectedRuleText.text, true)
+      createRuleDraftFromText(field, ruleText.text, true)
     );
 
     if (rules.length === 1) {
@@ -265,7 +296,7 @@ export default function StarredQueue({
           </p>
         </div>
         <div className="review-panel__actions">
-          <span className="pill">{total} starred</span>
+          <span className="pill">{total} Starred</span>
           <button type="button" className="ghost-button" onClick={onRefresh} disabled={loading}>
             {loading ? "Refreshing..." : "Refresh Starred"}
           </button>
@@ -275,11 +306,11 @@ export default function StarredQueue({
       {error ? <div className="form-error">{error}</div> : null}
 
       {loading && entries.length === 0 ? (
-        <div className="empty-state">Loading starred entries...</div>
+        <div className="empty-state">Loading Starred Entries...</div>
       ) : null}
 
       {!loading && entries.length === 0 ? (
-        <div className="empty-state">No starred entries are waiting for review.</div>
+        <div className="empty-state">No Starred Entries Are Waiting for Review.</div>
       ) : null}
 
       {entries.length > 0 ? (
@@ -354,6 +385,8 @@ export default function StarredQueue({
                           <button
                             type="button"
                             className="primary-button compact-button"
+                            onPointerDown={preserveLiveSelection}
+                            onTouchStart={preserveLiveSelection}
                             onClick={() => handleAddSelectedRule(entry, "EntryTitle")}
                           >
                             Add Title Rule
@@ -361,6 +394,8 @@ export default function StarredQueue({
                           <button
                             type="button"
                             className="ghost-button compact-button"
+                            onPointerDown={preserveLiveSelection}
+                            onTouchStart={preserveLiveSelection}
                             onClick={() => handleAddSelectedRule(entry, "EntryContent")}
                           >
                             Add Content Rule
@@ -368,6 +403,8 @@ export default function StarredQueue({
                           <button
                             type="button"
                             className="ghost-button compact-button"
+                            onPointerDown={preserveLiveSelection}
+                            onTouchStart={preserveLiveSelection}
                             onClick={() => handleAddSelectedRule(entry, ["EntryTitle", "EntryContent"])}
                           >
                             Add Both Rules
@@ -377,6 +414,8 @@ export default function StarredQueue({
                         <button
                           type="button"
                           className="primary-button compact-button"
+                          onPointerDown={preserveLiveSelection}
+                          onTouchStart={preserveLiveSelection}
                           onClick={() => handleAddSelectedRule(entry)}
                         >
                           Add Rule

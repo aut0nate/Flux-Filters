@@ -327,12 +327,12 @@ export default function RuleEditor({
 
       {rulesCollapsed ? (
         <div className="empty-state">
-          Rules are collapsed. The compiled text below still shows the exact rules for this tab.
+          Rules Are Collapsed. The compiled text below still shows the exact rules for this tab.
         </div>
       ) : (
         <div className="rule-list">
-          {activeRules.length === 0 ? <div className="empty-state">No rules yet for this tab.</div> : null}
-          {activeRules.length > 0 && filteredRules.length === 0 ? <div className="empty-state">No rules match this search.</div> : null}
+          {activeRules.length === 0 ? <div className="empty-state">No Rules Yet for This Tab.</div> : null}
+          {activeRules.length > 0 && filteredRules.length === 0 ? <div className="empty-state">No Rules Match This Search.</div> : null}
           {filteredRules.map((rule) => {
             const index = activeRules.findIndex((candidate) => candidate.id === rule.id);
             const regexSuggestion =
@@ -434,7 +434,7 @@ export default function RuleEditor({
 
       <div className="rule-toolbar">
         <div className="rule-toolbar__group">
-          <span className="pill">{activeRules.length} rules</span>
+          <span className="pill">{activeRules.length} Rules</span>
         </div>
         <button type="button" className="primary-button" onClick={() => void onSave()} disabled={!dirty || saving || hasFixableRegexWarnings}>{saving ? "Saving…" : "Save to Miniflux"}</button>
       </div>
