@@ -1,4 +1,5 @@
 import type { MinifluxFeed } from "../../shared/miniflux";
+import BackButton from "./BackButton";
 
 interface FailedFeedsPageProps {
   feeds: MinifluxFeed[];
@@ -60,12 +61,7 @@ export default function FailedFeedsPage({
     <section className="failed-feeds-panel">
       <div className="failed-feeds-panel__header">
         <div>
-          <button type="button" className="ghost-button back-button" onClick={onBack}>
-            <span aria-hidden="true" className="back-button__icon">
-              &larr;
-            </span>
-            <span>Back</span>
-          </button>
+          <BackButton onClick={onBack} />
           <p className="eyebrow">Feed Health</p>
           <h2>Failed Feeds</h2>
           <p className="subtle">

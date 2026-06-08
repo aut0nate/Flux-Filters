@@ -10,6 +10,7 @@ import {
   type MinifluxFeed,
   type RuleDraft
 } from "../../shared/miniflux";
+import BackButton from "./BackButton";
 
 type RuleTab = "block" | "allow";
 type RuleWarning =
@@ -244,10 +245,7 @@ export default function RuleEditor({
   return (
     <section className="editor-panel" ref={editorTopRef}>
       <div className="editor-nav">
-        <button type="button" className="ghost-button back-button" onClick={onBack}>
-          <span aria-hidden="true">←</span>
-          <span>Back</span>
-        </button>
+        <BackButton onClick={onBack} />
       </div>
 
       <div className="editor-header">

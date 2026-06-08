@@ -5,6 +5,7 @@ import type {
   DedupeLlmSummary,
   DedupePreview
 } from "../../shared/dedupe";
+import BackButton from "./BackButton";
 
 interface DedupeReviewProps {
   preview: DedupePreview | null;
@@ -49,9 +50,7 @@ export default function DedupeReview({
     <section className="dedupe-panel">
       <div className="panel-heading">
         <div>
-          <button type="button" className="ghost-button" onClick={onBack}>
-            Back to dashboard
-          </button>
+          <BackButton onClick={onBack} />
           <p className="eyebrow">Recent duplicate review</p>
           <h2>Duplicate articles</h2>
           <p>

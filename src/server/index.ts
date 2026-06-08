@@ -33,6 +33,8 @@ const dedupeConfigPath =
 const failedFeedsStatePath =
   process.env.FAILED_FEEDS_STATE_PATH ||
   path.resolve(process.cwd(), "data/failed-feeds-notification-state.json");
+const minifluxRequestTimeoutMs =
+  getPositiveIntegerEnv("MINIFLUX_REQUEST_TIMEOUT_SECONDS", 15, 1, 120) * 1000;
 
 app.use(express.json({ limit: "1mb" }));
 
@@ -195,8 +197,11 @@ async function minifluxRequest<T>(
   endpoint: string,
   init?: RequestInit
 ): Promise<T> {
+  const signal = init?.signal ?? AbortSignal.timeout(minifluxRequestTimeoutMs);
+
   const response = await fetch(joinUpstreamUrl(session.serverUrl, endpoint), {
     ...init,
+    signal,
     headers: {
       Accept: "application/json",
       "X-Auth-Token": session.apiToken,
@@ -1162,18 +1167,21 @@ app.post("/api/auth/test", async (request, response) => {
 app.get("/api/feeds", async (request, response) => {
   try {
     const session = getSessionFromHeaders(request);
+    const includeDetails = request.query.details === "full";
     const feeds = await minifluxRequest<MinifluxFeed[]>(session, "/v1/feeds");
-    const hydratedFeeds = await mapWithConcurrency(feeds, 10, async (feed) => {
-      try {
-        return await minifluxRequest<MinifluxFeed>(session, `/v1/feeds/${feed.id}`);
-      } catch {
-        // Fall back to the lighter list payload so one bad feed does not blank the whole dashboard.
-        return feed;
-      }
-    });
+    const feedsForResponse = includeDetails
+      ? await mapWithConcurrency(feeds, 10, async (feed) => {
+          try {
+            return await minifluxRequest<MinifluxFeed>(session, `/v1/feeds/${feed.id}`);
+          } catch {
+            // Fall back to the lighter list payload so one bad feed does not blank the whole dashboard.
+            return feed;
+          }
+        })
+      : feeds;
 
     response.json(
-      hydratedFeeds.sort((left, right) =>
+      feedsForResponse.sort((left, right) =>
         left.title.localeCompare(right.title, "en-GB", { sensitivity: "base" })
       )
     );
