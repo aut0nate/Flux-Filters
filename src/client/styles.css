@@ -1002,6 +1002,19 @@ a {
   word-break: break-word;
 }
 
+.editor-header__feed-link {
+  color: var(--text);
+  text-decoration-color: transparent;
+  text-underline-offset: 0.18em;
+  transition: color 140ms ease, text-decoration-color 140ms ease;
+}
+
+.editor-header__feed-link:hover,
+.editor-header__feed-link:focus-visible {
+  color: var(--link);
+  text-decoration-color: currentColor;
+}
+
 .ghost-button,
 .rule-actions button,
 .editor-tabs button {
