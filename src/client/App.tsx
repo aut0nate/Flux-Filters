@@ -1,6 +1,5 @@
 import {
   startTransition,
-  useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -193,15 +192,6 @@ function scrollToPageTop() {
   });
 }
 
-function mergeFeedsById(currentFeeds: MinifluxFeed[], nextFeeds: MinifluxFeed[]): MinifluxFeed[] {
-  const currentById = new Map(currentFeeds.map((feed) => [feed.id, feed]));
-
-  return nextFeeds.map((feed) => ({
-    ...currentById.get(feed.id),
-    ...feed
-  }));
-}
-
 export default function App() {
   const [session, setSession] = useState<SavedSession | null>(() => readSavedSession());
   const [theme, setTheme] = useState<ThemeMode>(() => readSavedTheme());
@@ -215,7 +205,6 @@ export default function App() {
   const [draftState, setDraftState] = useState<DraftState>(() => createDraftState(null));
   const [pendingSuggestedRule, setPendingSuggestedRule] = useState<PendingSuggestedRule | null>(null);
   const returnToStarredEntryId = useRef<number | null>(null);
-  const feedDetailsRequestId = useRef(0);
   const [activeTab, setActiveTab] = useState<RuleTab>("block");
   const [loadingSession, setLoadingSession] = useState(false);
   const [loadingFeeds, setLoadingFeeds] = useState(false);
@@ -236,33 +225,6 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [onlyWithRules, setOnlyWithRules] = useState(false);
   const deferredSearch = useDeferredValue(search);
-
-  const hydrateFeedDetails = useCallback(async (activeSession: SavedSession) => {
-    const requestId = feedDetailsRequestId.current + 1;
-    feedDetailsRequestId.current = requestId;
-
-    try {
-      const detailedFeeds = await fetchFeeds(activeSession, { includeDetails: true });
-
-      if (feedDetailsRequestId.current !== requestId) {
-        return;
-      }
-
-      startTransition(() => {
-        setFeeds((currentFeeds) => mergeFeedsById(currentFeeds, detailedFeeds));
-      });
-    } catch (error) {
-      if (feedDetailsRequestId.current !== requestId) {
-        return;
-      }
-
-      setSessionError(
-        error instanceof Error
-          ? `Unable to load feed rule details: ${error.message}`
-          : "Unable to load feed rule details."
-      );
-    }
-  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -294,7 +256,6 @@ export default function App() {
               : null
           );
         });
-        void hydrateFeedDetails(session);
       } catch (error) {
         if (cancelled) {
           return;
@@ -318,9 +279,8 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      feedDetailsRequestId.current += 1;
     };
-  }, [hydrateFeedDetails, session]);
+  }, [session]);
 
   useEffect(() => {
     if (!session) {
@@ -589,9 +549,6 @@ export default function App() {
     setDedupeMessage("");
     scrollToPageTop();
 
-    if (!dedupePreview) {
-      void handleRefreshDedupePreview();
-    }
     void handleRefreshDedupeAudit();
   }
 
@@ -631,7 +588,6 @@ export default function App() {
           ? currentSelectedFeedId
           : null
       );
-      void hydrateFeedDetails(session);
     } catch (error) {
       setSessionError(error instanceof Error ? error.message : "Unable to refresh feeds.");
     } finally {
@@ -664,7 +620,6 @@ export default function App() {
       ).length;
 
       setFeeds(nextFeeds);
-      void hydrateFeedDetails(session);
       setFailedFeedsMessage(
         [
           `Retried ${failedFeedIds.size} failed ${failedFeedIds.size === 1 ? "feed" : "feeds"}.`,
