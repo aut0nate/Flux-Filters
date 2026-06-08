@@ -229,7 +229,7 @@ async function minifluxRequest<T>(
   return (await response.json()) as T;
 }
 
-async function fetchUnreadEntriesForDedupe(
+async function fetchRecentEntriesForDedupe(
   session: SessionPayload,
   windowDays: number
 ): Promise<MinifluxEntriesResponse> {
@@ -239,7 +239,6 @@ async function fetchUnreadEntriesForDedupe(
 
   for (let offset = 0; ; offset += limit) {
     const params = new URLSearchParams({
-      status: "unread",
       limit: String(limit),
       offset: String(offset),
       order: "published_at",
@@ -459,6 +458,7 @@ function createAuditRun(mode: DedupeAuditRun["mode"], preview: DedupePreview): D
     createdAt: new Date().toISOString(),
     windowDays: preview.windowDays,
     totalUnreadEntries: preview.totalUnreadEntries,
+    totalCheckedEntries: preview.totalCheckedEntries,
     markedReadCount: preview.markReadEntryIds.length,
     markedReadEntryIds: preview.markReadEntryIds,
     groups: preview.groups,
@@ -624,8 +624,8 @@ function createSemanticTitleCandidates(
   windowDays: number,
   dedupeConfig: DedupeRuntimeConfig
 ): SemanticTitleCandidate[] {
-  const unreadEntries = entries
-    .filter((entry) => entry.status === "unread")
+  const dedupeEntries = entries
+    .filter((entry) => entry.status === "read" || entry.status === "unread")
     .sort(compareEntriesOldestFirst);
   const deterministicEntryIds = new Set([
     ...preview.markReadEntryIds,
@@ -634,15 +634,15 @@ function createSemanticTitleCandidates(
   const maxWindowMs = windowDays * 24 * 60 * 60 * 1000;
   const candidates: SemanticTitleCandidate[] = [];
 
-  for (let leftIndex = 0; leftIndex < unreadEntries.length; leftIndex += 1) {
-    const left = unreadEntries[leftIndex];
+  for (let leftIndex = 0; leftIndex < dedupeEntries.length; leftIndex += 1) {
+    const left = dedupeEntries[leftIndex];
 
     if (deterministicEntryIds.has(left.id)) {
       continue;
     }
 
-    for (let rightIndex = leftIndex + 1; rightIndex < unreadEntries.length; rightIndex += 1) {
-      const right = unreadEntries[rightIndex];
+    for (let rightIndex = leftIndex + 1; rightIndex < dedupeEntries.length; rightIndex += 1) {
+      const right = dedupeEntries[rightIndex];
 
       if (deterministicEntryIds.has(right.id)) {
         continue;
@@ -662,6 +662,11 @@ function createSemanticTitleCandidates(
       }
 
       const [keeper, duplicate] = [left, right].sort(compareEntriesOldestFirst);
+
+      if (duplicate.status !== "unread") {
+        continue;
+      }
+
       candidates.push({ keeper, duplicate, localScore });
     }
   }
@@ -768,7 +773,7 @@ async function runDedupeJob(
   mode: DedupeAuditRun["mode"],
   notificationConfig = getDedupeNotificationConfig()
 ): Promise<DedupeAuditRun | null> {
-  const entries = await fetchUnreadEntriesForDedupe(session, windowDays);
+  const entries = await fetchRecentEntriesForDedupe(session, windowDays);
   const preview = await createServerDedupePreview(entries.entries, windowDays);
 
   if (preview.markReadEntryIds.length === 0) {
@@ -808,7 +813,7 @@ function formatFilteredEntriesMessage(run: DedupeAuditRun): string {
     return [
       `Match ${index + 1}: ${formatDedupeStage(group.stage)} (${Math.round(group.score * 100)}%)`,
       group.reason,
-      formatEntryLine("Kept unread", group.keeper),
+      formatEntryLine(`Kept ${group.keeper.status}`, group.keeper),
       "",
       ...duplicateLines
     ];
@@ -1267,7 +1272,7 @@ app.get("/api/dedupe/preview", async (request, response) => {
   try {
     const session = getSessionFromHeaders(request);
     const windowDays = getDedupeWindowDays(request.query.windowDays);
-    const entries = await fetchUnreadEntriesForDedupe(session, windowDays);
+    const entries = await fetchRecentEntriesForDedupe(session, windowDays);
     const preview: DedupePreview = await createServerDedupePreview(entries.entries, windowDays);
 
     response.json(preview);
@@ -1293,7 +1298,7 @@ app.put("/api/dedupe/apply", async (request, response) => {
     const session = getSessionFromHeaders(request);
     const payload = request.body as DedupeApplyPayload;
     const entryIds = getEntryIds(payload.entryIds);
-    const entries = await fetchUnreadEntriesForDedupe(session, 7);
+    const entries = await fetchRecentEntriesForDedupe(session, 7);
     const preview = filterPreviewForEntryIds(await createServerDedupePreview(entries.entries, 7), entryIds);
 
     if (preview.markReadEntryIds.length === 0) {

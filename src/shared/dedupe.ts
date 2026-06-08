@@ -9,6 +9,7 @@ export interface DedupeEntrySummary {
   title: string;
   url: string;
   publishedAt: string;
+  status: MinifluxEntry["status"];
 }
 
 export interface DedupeGroup {
@@ -35,6 +36,7 @@ export interface DedupePreview {
   generatedAt: string;
   windowDays: number;
   totalUnreadEntries: number;
+  totalCheckedEntries: number;
   groups: DedupeGroup[];
   markReadEntryIds: number[];
   llm?: DedupeLlmSummary;
@@ -46,6 +48,7 @@ export interface DedupeAuditRun {
   createdAt: string;
   windowDays: number;
   totalUnreadEntries: number;
+  totalCheckedEntries: number;
   markedReadCount: number;
   markedReadEntryIds: number[];
   groups: DedupeGroup[];
@@ -266,15 +269,16 @@ export function createDedupePreview(
   const config = normaliseDedupeConfig(options.config);
   const windowDays = options.windowDays ?? DEFAULT_WINDOW_DAYS;
   const similarTitleThreshold = options.similarTitleThreshold ?? config.similarTitleThreshold;
-  const unreadEntries = entries
-    .filter((entry) => entry.status === "unread")
+  const dedupeEntries = entries
+    .filter((entry) => entry.status === "read" || entry.status === "unread")
     .sort(compareEntriesOldestFirst);
+  const unreadEntries = dedupeEntries.filter((entry) => entry.status === "unread");
   const consumedEntryIds = new Set<number>();
   const groups: DedupeGroup[] = [];
 
   groups.push(
     ...createExactGroups(
-      unreadEntries,
+      dedupeEntries,
       "url",
       (entry) => normaliseEntryUrl(entry.url),
       "Same normalised URL",
@@ -283,7 +287,7 @@ export function createDedupePreview(
   );
   groups.push(
     ...createExactGroups(
-      unreadEntries,
+      dedupeEntries,
       "title",
       (entry) => normaliseEntryTitle(entry.title),
       "Same normalised title",
@@ -291,7 +295,7 @@ export function createDedupePreview(
     )
   );
   groups.push(
-    ...createSimilarTitleGroups(unreadEntries, windowDays, similarTitleThreshold, config, consumedEntryIds)
+    ...createSimilarTitleGroups(dedupeEntries, windowDays, similarTitleThreshold, config, consumedEntryIds)
   );
 
   const markReadEntryIds = [...new Set(groups.flatMap((group) => group.duplicates.map((entry) => entry.id)))];
@@ -300,6 +304,7 @@ export function createDedupePreview(
     generatedAt: new Date().toISOString(),
     windowDays,
     totalUnreadEntries: unreadEntries.length,
+    totalCheckedEntries: dedupeEntries.length,
     groups,
     markReadEntryIds
   };
@@ -329,7 +334,16 @@ function createExactGroups(
 
   return [...groupedEntries.entries()]
     .filter(([, groupEntries]) => groupEntries.length > 1)
-    .map(([key, groupEntries]) => createGroup(stage, reason, key, 1, groupEntries, consumedEntryIds));
+    .flatMap(([key, groupEntries]) => {
+      const group = createGroup(stage, reason, key, 1, groupEntries);
+
+      if (!hasUnreadDuplicates(group)) {
+        return [];
+      }
+
+      consumeGroupDuplicates(groupEntries, consumedEntryIds);
+      return [group];
+    });
 }
 
 function createSimilarTitleGroups(
@@ -364,16 +378,18 @@ function createSimilarTitleGroups(
 
     const groupEntries = [entry, ...matches.map((match) => match.entry)];
     const score = Math.min(...matches.map((match) => match.score));
-    groups.push(
-      createGroup(
-        "similar-title",
-        `Similar title within the ${windowDays}-day window`,
-        normaliseEntryTitle(entry.title),
-        score,
-        groupEntries,
-        consumedEntryIds
-      )
+    const group = createGroup(
+      "similar-title",
+      `Similar title within the ${windowDays}-day window`,
+      normaliseEntryTitle(entry.title),
+      score,
+      groupEntries
     );
+
+    if (hasUnreadDuplicates(group)) {
+      consumeGroupDuplicates(groupEntries, consumedEntryIds);
+      groups.push(group);
+    }
   }
 
   return groups;
@@ -384,15 +400,11 @@ function createGroup(
   reason: string,
   key: string,
   score: number,
-  entries: MinifluxEntry[],
-  consumedEntryIds: Set<number>
+  entries: MinifluxEntry[]
 ): DedupeGroup {
   const sortedEntries = [...entries].sort(compareEntriesOldestFirst);
   const [keeper, ...duplicates] = sortedEntries;
-
-  for (const entry of duplicates) {
-    consumedEntryIds.add(entry.id);
-  }
+  const unreadDuplicates = duplicates.filter((entry) => entry.status === "unread");
 
   return {
     id: `${stage}-${hashGroupKey(key)}-${keeper.id}`,
@@ -400,8 +412,20 @@ function createGroup(
     reason,
     score,
     keeper: summariseEntry(keeper),
-    duplicates: duplicates.map(summariseEntry)
+    duplicates: unreadDuplicates.map(summariseEntry)
   };
+}
+
+function hasUnreadDuplicates(group: DedupeGroup): boolean {
+  return group.duplicates.length > 0;
+}
+
+function consumeGroupDuplicates(entries: MinifluxEntry[], consumedEntryIds: Set<number>): void {
+  const [, ...duplicates] = [...entries].sort(compareEntriesOldestFirst);
+
+  for (const entry of duplicates) {
+    consumedEntryIds.add(entry.id);
+  }
 }
 
 export function summariseEntry(entry: MinifluxEntry): DedupeEntrySummary {
@@ -411,7 +435,8 @@ export function summariseEntry(entry: MinifluxEntry): DedupeEntrySummary {
     feedTitle: entry.feed?.title ?? `Feed ${entry.feed_id}`,
     title: entry.title,
     url: entry.url,
-    publishedAt: entry.published_at
+    publishedAt: entry.published_at,
+    status: entry.status
   };
 }
 
