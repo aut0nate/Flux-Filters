@@ -529,7 +529,7 @@ a {
   max-width: 72ch;
 }
 
-.panel-heading .ghost-button {
+.panel-heading .back-button {
   margin-bottom: 1rem;
 }
 
@@ -679,10 +679,6 @@ a {
 .failed-feeds-panel h2,
 .failed-feed-card h3 {
   margin: 0;
-}
-
-.failed-feeds-panel .back-button {
-  margin-bottom: 1rem;
 }
 
 .failed-feeds-panel .subtle {
@@ -984,6 +980,7 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+  margin-bottom: 1rem;
 }
 
 .back-button span[aria-hidden="true"] {

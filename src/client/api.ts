@@ -62,8 +62,16 @@ export async function testConnection(session: ClientSession): Promise<AuthRespon
   return parseResponse<AuthResponse>(response);
 }
 
-export async function fetchFeeds(session: ClientSession): Promise<MinifluxFeed[]> {
-  const response = await fetch("/api/feeds", {
+export async function fetchFeeds(
+  session: ClientSession,
+  options: { includeDetails?: boolean } = {}
+): Promise<MinifluxFeed[]> {
+  const params = new URLSearchParams();
+  if (options.includeDetails) {
+    params.set("details", "full");
+  }
+
+  const response = await fetch(`/api/feeds${params.size > 0 ? `?${params.toString()}` : ""}`, {
     headers: withSessionHeaders(session)
   });
 

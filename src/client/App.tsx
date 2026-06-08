@@ -1,4 +1,12 @@
-import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 
 import {
   ApiError,
@@ -185,6 +193,15 @@ function scrollToPageTop() {
   });
 }
 
+function mergeFeedsById(currentFeeds: MinifluxFeed[], nextFeeds: MinifluxFeed[]): MinifluxFeed[] {
+  const currentById = new Map(currentFeeds.map((feed) => [feed.id, feed]));
+
+  return nextFeeds.map((feed) => ({
+    ...currentById.get(feed.id),
+    ...feed
+  }));
+}
+
 export default function App() {
   const [session, setSession] = useState<SavedSession | null>(() => readSavedSession());
   const [theme, setTheme] = useState<ThemeMode>(() => readSavedTheme());
@@ -198,6 +215,7 @@ export default function App() {
   const [draftState, setDraftState] = useState<DraftState>(() => createDraftState(null));
   const [pendingSuggestedRule, setPendingSuggestedRule] = useState<PendingSuggestedRule | null>(null);
   const returnToStarredEntryId = useRef<number | null>(null);
+  const feedDetailsRequestId = useRef(0);
   const [activeTab, setActiveTab] = useState<RuleTab>("block");
   const [loadingSession, setLoadingSession] = useState(false);
   const [loadingFeeds, setLoadingFeeds] = useState(false);
@@ -218,6 +236,33 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [onlyWithRules, setOnlyWithRules] = useState(false);
   const deferredSearch = useDeferredValue(search);
+
+  const hydrateFeedDetails = useCallback(async (activeSession: SavedSession) => {
+    const requestId = feedDetailsRequestId.current + 1;
+    feedDetailsRequestId.current = requestId;
+
+    try {
+      const detailedFeeds = await fetchFeeds(activeSession, { includeDetails: true });
+
+      if (feedDetailsRequestId.current !== requestId) {
+        return;
+      }
+
+      startTransition(() => {
+        setFeeds((currentFeeds) => mergeFeedsById(currentFeeds, detailedFeeds));
+      });
+    } catch (error) {
+      if (feedDetailsRequestId.current !== requestId) {
+        return;
+      }
+
+      setSessionError(
+        error instanceof Error
+          ? `Unable to load feed rule details: ${error.message}`
+          : "Unable to load feed rule details."
+      );
+    }
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -246,9 +291,10 @@ export default function App() {
           setSelectedFeedId((currentSelectedFeedId) =>
             currentSelectedFeedId && nextFeeds.some((feed) => feed.id === currentSelectedFeedId)
               ? currentSelectedFeedId
-              : nextFeeds[0]?.id ?? null
+              : null
           );
         });
+        void hydrateFeedDetails(session);
       } catch (error) {
         if (cancelled) {
           return;
@@ -272,8 +318,9 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      feedDetailsRequestId.current += 1;
     };
-  }, [session]);
+  }, [hydrateFeedDetails, session]);
 
   useEffect(() => {
     if (!session) {
@@ -394,31 +441,49 @@ export default function App() {
     };
   }, [session, selectedFeedId]);
 
-  const filteredFeeds = feeds.filter((feed) => {
-    const matchesSearch =
-      deferredSearch.trim() === "" ||
-      feed.title.toLowerCase().includes(deferredSearch.toLowerCase()) ||
-      feed.feed_url.toLowerCase().includes(deferredSearch.toLowerCase());
+  const filteredFeeds = useMemo(() => {
+    const normalisedSearch = deferredSearch.trim().toLowerCase();
 
-    if (!matchesSearch) {
-      return false;
-    }
+    return feeds.filter((feed) => {
+      const matchesSearch =
+        normalisedSearch === "" ||
+        feed.title.toLowerCase().includes(normalisedSearch) ||
+        feed.feed_url.toLowerCase().includes(normalisedSearch);
 
-    if (onlyWithRules && !hasEntryFilterRules(feed)) {
-      return false;
-    }
+      if (!matchesSearch) {
+        return false;
+      }
 
-    return true;
-  });
+      if (onlyWithRules && !hasEntryFilterRules(feed)) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [deferredSearch, feeds, onlyWithRules]);
 
   const dirty =
     selectedFeed !== null &&
     (compileRuleText(draftState.blockRules) !== getFeedBlockRules(selectedFeed).trim() ||
       compileRuleText(draftState.allowRules) !== getFeedAllowRules(selectedFeed).trim());
 
-  const totalBlockRules = feeds.reduce((count, feed) => count + countRules(getFeedBlockRules(feed)), 0);
-  const totalAllowRules = feeds.reduce((count, feed) => count + countRules(getFeedAllowRules(feed)), 0);
-  const feedsWithRules = feeds.filter((feed) => hasEntryFilterRules(feed)).length;
+  const feedRuleSummary = useMemo(
+    () =>
+      feeds.reduce(
+        (summary, feed) => ({
+          totalBlockRules: summary.totalBlockRules + countRules(getFeedBlockRules(feed)),
+          totalAllowRules: summary.totalAllowRules + countRules(getFeedAllowRules(feed)),
+          feedsWithRules: summary.feedsWithRules + (hasEntryFilterRules(feed) ? 1 : 0)
+        }),
+        {
+          totalBlockRules: 0,
+          totalAllowRules: 0,
+          feedsWithRules: 0
+        }
+      ),
+    [feeds]
+  );
+  const { totalBlockRules, totalAllowRules, feedsWithRules } = feedRuleSummary;
   const failedFeeds = useMemo(
     () =>
       feeds
@@ -561,6 +626,12 @@ export default function App() {
 
       const nextFeeds = await fetchFeeds(session);
       setFeeds(nextFeeds);
+      setSelectedFeedId((currentSelectedFeedId) =>
+        currentSelectedFeedId && nextFeeds.some((feed) => feed.id === currentSelectedFeedId)
+          ? currentSelectedFeedId
+          : null
+      );
+      void hydrateFeedDetails(session);
     } catch (error) {
       setSessionError(error instanceof Error ? error.message : "Unable to refresh feeds.");
     } finally {
@@ -593,6 +664,7 @@ export default function App() {
       ).length;
 
       setFeeds(nextFeeds);
+      void hydrateFeedDetails(session);
       setFailedFeedsMessage(
         [
           `Retried ${failedFeedIds.size} failed ${failedFeedIds.size === 1 ? "feed" : "feeds"}.`,
