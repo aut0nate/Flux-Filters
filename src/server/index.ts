@@ -3,6 +3,7 @@ import express from "express";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { setImmediate as waitImmediate } from "node:timers/promises";
 
 import {
   compareEntriesOldestFirst,
@@ -35,6 +36,8 @@ const failedFeedsStatePath =
   path.resolve(process.cwd(), "data/failed-feeds-notification-state.json");
 const minifluxRequestTimeoutMs =
   getPositiveIntegerEnv("MINIFLUX_REQUEST_TIMEOUT_SECONDS", 15, 1, 120) * 1000;
+const openRouterRequestTimeoutMs =
+  getPositiveIntegerEnv("OPENROUTER_REQUEST_TIMEOUT_SECONDS", 10, 1, 120) * 1000;
 
 app.use(express.json({ limit: "1mb" }));
 
@@ -521,7 +524,8 @@ async function markEntriesStatus(
 
 async function createServerDedupePreview(
   entries: MinifluxEntry[],
-  windowDays: number
+  windowDays: number,
+  options: { includeSemantic?: boolean } = {}
 ): Promise<DedupePreview> {
   const dedupeConfig = await loadDedupeConfig();
   const preview = createDedupePreview(entries, {
@@ -529,12 +533,13 @@ async function createServerDedupePreview(
     config: dedupeConfig
   });
   const openRouterConfig = getOpenRouterConfig();
+  const includeSemantic = options.includeSemantic ?? true;
 
-  if (!openRouterConfig || dedupeConfig.llmMaxPairs === 0) {
+  if (!includeSemantic || !openRouterConfig || dedupeConfig.llmMaxPairs === 0) {
     return {
       ...preview,
       llm: createLlmSummary({
-        enabled: Boolean(openRouterConfig),
+        enabled: includeSemantic && Boolean(openRouterConfig),
         model: openRouterConfig?.model ?? null
       })
     };
@@ -565,7 +570,7 @@ async function addSemanticTitleGroups(
 ): Promise<DedupePreview> {
   const consumedEntryIds = new Set(preview.markReadEntryIds);
   const groups: DedupeGroup[] = [];
-  const candidates = createSemanticTitleCandidates(entries, preview, windowDays, dedupeConfig);
+  const candidates = await createSemanticTitleCandidates(entries, preview, windowDays, dedupeConfig);
   const llmSummary = createLlmSummary({
     enabled: true,
     model: openRouterConfig.model,
@@ -623,12 +628,12 @@ function createLlmSummary(summary: Partial<DedupeLlmSummary> = {}): DedupeLlmSum
   };
 }
 
-function createSemanticTitleCandidates(
+async function createSemanticTitleCandidates(
   entries: MinifluxEntry[],
   preview: DedupePreview,
   windowDays: number,
   dedupeConfig: DedupeRuntimeConfig
-): SemanticTitleCandidate[] {
+): Promise<SemanticTitleCandidate[]> {
   const dedupeEntries = entries
     .filter((entry) => entry.status === "read" || entry.status === "unread")
     .sort(compareEntriesOldestFirst);
@@ -640,6 +645,10 @@ function createSemanticTitleCandidates(
   const candidates: SemanticTitleCandidate[] = [];
 
   for (let leftIndex = 0; leftIndex < dedupeEntries.length; leftIndex += 1) {
+    if (leftIndex > 0 && leftIndex % 50 === 0) {
+      await waitImmediate();
+    }
+
     const left = dedupeEntries[leftIndex];
 
     if (deterministicEntryIds.has(left.id)) {
@@ -685,6 +694,7 @@ async function requestSemanticTitleDecision(
 ): Promise<SemanticTitleDecision> {
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
+    signal: AbortSignal.timeout(openRouterRequestTimeoutMs),
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
       "Content-Type": "application/json",
@@ -1281,7 +1291,9 @@ app.get("/api/dedupe/preview", async (request, response) => {
     const session = getSessionFromHeaders(request);
     const windowDays = getDedupeWindowDays(request.query.windowDays);
     const entries = await fetchRecentEntriesForDedupe(session, windowDays);
-    const preview: DedupePreview = await createServerDedupePreview(entries.entries, windowDays);
+    const preview: DedupePreview = await createServerDedupePreview(entries.entries, windowDays, {
+      includeSemantic: request.query.semantic === "true"
+    });
 
     response.json(preview);
   } catch (error) {
