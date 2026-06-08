@@ -16,11 +16,11 @@ export default function SummaryCards({
   onShowFailedFeeds
 }: SummaryCardsProps) {
   const metrics = [
-    { label: "Total feeds", value: totalFeeds },
-    { label: "Feeds with rules", value: feedsWithRules },
-    { label: "Failed feeds", value: failedFeeds, onClick: onShowFailedFeeds },
-    { label: "Block rules", value: totalBlockRules },
-    { label: "Allow rules", value: totalAllowRules }
+    { label: "Total Feeds", value: totalFeeds },
+    { label: "Feeds with Rules", value: feedsWithRules },
+    { label: "Failed Feeds", value: failedFeeds, onClick: onShowFailedFeeds },
+    { label: "Block Rules", value: totalBlockRules },
+    { label: "Allow Rules", value: totalAllowRules }
   ];
 
   return (

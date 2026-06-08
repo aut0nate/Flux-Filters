@@ -46,7 +46,7 @@ export default function FeedSidebar({
               checked={onlyWithRules}
               onChange={(event) => onOnlyWithRulesChange(event.target.checked)}
             />
-            <span>Only show feeds with rules</span>
+            <span>Only Show Feeds with Rules</span>
           </label>
         </div>
 
@@ -57,7 +57,7 @@ export default function FeedSidebar({
 
       <div className="feed-list">
         {feeds.length === 0 ? (
-          <div className="empty-state compact">No feeds match your search.</div>
+          <div className="empty-state compact">No Feeds Match Your Search.</div>
         ) : null}
 
         {feeds.map((feed) => {

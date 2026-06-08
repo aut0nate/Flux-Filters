@@ -397,7 +397,7 @@ a {
 .starred-list {
   display: grid;
   gap: 0.8rem;
-  max-height: 28rem;
+  max-height: clamp(18rem, 42vh, 30rem);
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   padding-right: 0.2rem;
@@ -1557,11 +1557,15 @@ select,
     overflow-wrap: anywhere;
   }
 
-  .starred-list,
   .feed-list {
     max-height: none;
     overflow: visible;
     padding-right: 0;
+  }
+
+  .starred-list {
+    max-height: min(28rem, 58vh);
+    padding-right: 0.15rem;
   }
 
   .selection-action {

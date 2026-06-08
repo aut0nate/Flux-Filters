@@ -697,7 +697,7 @@ export default function App() {
       const preview = await fetchDedupePreview(session, 7);
       setDedupePreview(preview);
     } catch (error) {
-      setDedupeError(error instanceof Error ? error.message : "Unable to check duplicate entries.");
+      setDedupeError(error instanceof Error ? error.message : "Unable to check filter candidates.");
     } finally {
       setLoadingDedupe(false);
     }
@@ -714,7 +714,7 @@ export default function App() {
       const audit = await fetchDedupeAudit(session, 7);
       setDedupeAuditRuns(audit.runs);
     } catch (error) {
-      setDedupeError(error instanceof Error ? error.message : "Unable to load duplicate history.");
+      setDedupeError(error instanceof Error ? error.message : "Unable to load filter history.");
     } finally {
       setLoadingDedupeAudit(false);
     }
@@ -732,7 +732,7 @@ export default function App() {
     try {
       const result = await applyDedupeEntries(session, dedupePreview.markReadEntryIds);
       setDedupeMessage(
-        `Marked ${result.markedReadCount} duplicate ${
+        `Marked ${result.markedReadCount} filtered ${
           result.markedReadCount === 1 ? "article" : "articles"
         } as read.`
       );
@@ -740,7 +740,7 @@ export default function App() {
       setDedupePreview(refreshedPreview);
       await handleRefreshDedupeAudit();
     } catch (error) {
-      setDedupeError(error instanceof Error ? error.message : "Unable to mark duplicate entries as read.");
+      setDedupeError(error instanceof Error ? error.message : "Unable to mark filtered entries as read.");
     } finally {
       setApplyingDedupe(false);
     }
@@ -764,7 +764,7 @@ export default function App() {
       );
       await Promise.all([handleRefreshDedupePreview(), handleRefreshDedupeAudit()]);
     } catch (error) {
-      setDedupeError(error instanceof Error ? error.message : "Unable to mark duplicate entries as unread.");
+      setDedupeError(error instanceof Error ? error.message : "Unable to mark filtered entries as unread.");
     } finally {
       setRestoringDedupeEntryIds([]);
     }
@@ -946,10 +946,10 @@ export default function App() {
       ) : (
         <main className="workspace workspace--feed">
           <section className="workspace__content">
-            {loadingFeeds ? <div className="empty-state">Loading feeds…</div> : null}
+            {loadingFeeds ? <div className="empty-state">Loading Feeds…</div> : null}
 
             {!loadingFeeds && loadingSelectedFeed ? (
-              <div className="empty-state">Loading feed rules…</div>
+              <div className="empty-state">Loading Feed Rules…</div>
             ) : null}
 
             {!loadingFeeds && !loadingSelectedFeed && selectedFeed ? (
@@ -972,7 +972,7 @@ export default function App() {
             ) : null}
 
             {!loadingFeeds && !selectedFeed ? (
-              <div className="empty-state">Select a feed to inspect its rules.</div>
+              <div className="empty-state">Select a Feed to Inspect Its Rules.</div>
             ) : null}
           </section>
         </main>

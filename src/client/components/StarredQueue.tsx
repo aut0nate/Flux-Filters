@@ -265,7 +265,7 @@ export default function StarredQueue({
           </p>
         </div>
         <div className="review-panel__actions">
-          <span className="pill">{total} starred</span>
+          <span className="pill">{total} Starred</span>
           <button type="button" className="ghost-button" onClick={onRefresh} disabled={loading}>
             {loading ? "Refreshing..." : "Refresh Starred"}
           </button>
@@ -275,11 +275,11 @@ export default function StarredQueue({
       {error ? <div className="form-error">{error}</div> : null}
 
       {loading && entries.length === 0 ? (
-        <div className="empty-state">Loading starred entries...</div>
+        <div className="empty-state">Loading Starred Entries...</div>
       ) : null}
 
       {!loading && entries.length === 0 ? (
-        <div className="empty-state">No starred entries are waiting for review.</div>
+        <div className="empty-state">No Starred Entries Are Waiting for Review.</div>
       ) : null}
 
       {entries.length > 0 ? (

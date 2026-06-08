@@ -71,7 +71,7 @@ export default function FailedFeedsPage({
         </div>
 
         <div className="failed-feeds-panel__actions">
-          <span className="failed-count-badge">{feeds.length} failed</span>
+          <span className="failed-count-badge">{feeds.length} Failed</span>
           <button
             type="button"
             className="primary-button"
@@ -86,7 +86,7 @@ export default function FailedFeedsPage({
       {refreshMessage ? <div className="form-success">{refreshMessage}</div> : null}
 
       {feeds.length === 0 ? (
-        <div className="empty-state">No failed feeds are currently reported by Miniflux.</div>
+        <div className="empty-state">No Failed Feeds Are Currently Reported by Miniflux.</div>
       ) : (
         <div className="failed-feed-list">
           {feeds.map((feed) => (
