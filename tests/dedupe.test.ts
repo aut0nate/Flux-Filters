@@ -314,6 +314,78 @@ describe("Miniflux dedupe helpers", () => {
     expect(preview.markReadEntryIds).toHaveLength(0);
   });
 
+  it("excludes newsletter entries from dedupe matching", () => {
+    const preview = createDedupePreview([
+      createEntry({
+        id: 1,
+        title: "Weekly AI newsletter",
+        url: "https://example.com/newsletter",
+        feed: {
+          id: 10,
+          title: "Example Newsletter",
+          feed_url: "https://example.com/newsletter.xml",
+          site_url: "https://example.com",
+          category: {
+            id: 5,
+            title: "Newsletter"
+          }
+        }
+      }),
+      createEntry({
+        id: 2,
+        title: "Weekly AI newsletter",
+        url: "https://example.com/newsletter?utm_source=email",
+        feed: {
+          id: 11,
+          title: "Another Newsletter",
+          feed_url: "https://another.example/newsletter.xml",
+          site_url: "https://another.example",
+          category: {
+            id: 5,
+            title: " newsletter "
+          }
+        },
+        published_at: "2026-06-02T10:00:00Z"
+      })
+    ]);
+
+    expect(preview.totalCheckedEntries).toBe(0);
+    expect(preview.totalUnreadEntries).toBe(0);
+    expect(preview.groups).toHaveLength(0);
+    expect(preview.markReadEntryIds).toHaveLength(0);
+  });
+
+  it("does not use a newsletter item as the keeper for a non-newsletter duplicate", () => {
+    const preview = createDedupePreview([
+      createEntry({
+        id: 1,
+        status: "read",
+        title: "Weekly AI roundup",
+        feed: {
+          id: 10,
+          title: "Example Newsletter",
+          feed_url: "https://example.com/newsletter.xml",
+          site_url: "https://example.com",
+          category: {
+            id: 5,
+            title: "Newsletter"
+          }
+        }
+      }),
+      createEntry({
+        id: 2,
+        title: "Weekly AI roundup",
+        url: "https://example.com/article-2",
+        published_at: "2026-06-02T10:00:00Z"
+      })
+    ]);
+
+    expect(preview.totalCheckedEntries).toBe(1);
+    expect(preview.totalUnreadEntries).toBe(1);
+    expect(preview.groups).toHaveLength(0);
+    expect(preview.markReadEntryIds).toHaveLength(0);
+  });
+
   it("does not auto-match articles that only share places, people, or teams", () => {
     const preview = createDedupePreview([
       createEntry({

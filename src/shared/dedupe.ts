@@ -140,6 +140,7 @@ const DEFAULT_GENERIC_SHARED_ENTITIES = [
 ];
 const DEFAULT_GENERIC_ENTITY_PATTERN =
   "\\b(?:cup|league|championship|tournament|opener|qualifier|finals?)\\b";
+const EXCLUDED_DEDUPE_CATEGORY_TITLES = new Set(["newsletter"]);
 
 export interface DedupeConfig {
   similarTitleThreshold: number;
@@ -266,9 +267,7 @@ export function createDedupePreview(
   options: DedupeOptions = {}
 ): DedupePreview {
   const windowDays = options.windowDays ?? DEFAULT_WINDOW_DAYS;
-  const dedupeEntries = entries
-    .filter((entry) => entry.status === "read" || entry.status === "unread")
-    .sort(compareEntriesOldestFirst);
+  const dedupeEntries = entries.filter(isDedupeEligibleEntry).sort(compareEntriesOldestFirst);
   const unreadEntries = dedupeEntries.filter((entry) => entry.status === "unread");
   const consumedEntryIds = new Set<number>();
   const groups: DedupeGroup[] = [];
@@ -302,6 +301,14 @@ export function createDedupePreview(
     groups,
     markReadEntryIds
   };
+}
+
+export function isDedupeEligibleEntry(entry: MinifluxEntry): boolean {
+  if (entry.status !== "read" && entry.status !== "unread") {
+    return false;
+  }
+
+  return !isExcludedDedupeCategory(entry.feed?.category?.title);
 }
 
 function createExactGroups(
@@ -496,6 +503,10 @@ function normaliseConfigWords(value: string[] | undefined, fallback: string[]): 
         .filter(Boolean)
     )
   ];
+}
+
+function isExcludedDedupeCategory(value: string | undefined): boolean {
+  return EXCLUDED_DEDUPE_CATEGORY_TITLES.has(value?.trim().toLowerCase() ?? "");
 }
 
 function hashGroupKey(value: string): string {
