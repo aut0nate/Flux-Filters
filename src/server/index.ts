@@ -8,6 +8,7 @@ import { setImmediate as waitImmediate } from "node:timers/promises";
 import {
   compareEntriesOldestFirst,
   createDedupePreview,
+  isDedupeEligibleEntry,
   normaliseDedupeConfig,
   scoreSimilarTitles,
   summariseEntry,
@@ -634,9 +635,7 @@ async function createSemanticTitleCandidates(
   windowDays: number,
   dedupeConfig: DedupeRuntimeConfig
 ): Promise<SemanticTitleCandidate[]> {
-  const dedupeEntries = entries
-    .filter((entry) => entry.status === "read" || entry.status === "unread")
-    .sort(compareEntriesOldestFirst);
+  const dedupeEntries = entries.filter(isDedupeEligibleEntry).sort(compareEntriesOldestFirst);
   const deterministicEntryIds = new Set([
     ...preview.markReadEntryIds,
     ...preview.groups.flatMap((group) => [group.keeper.id, ...group.duplicates.map((entry) => entry.id)])
