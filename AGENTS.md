@@ -66,6 +66,7 @@ The browser holds the Miniflux API token in session storage only. The Express se
 - Keep `.env` files out of Git.
 - Restrict the proxy in production with `MINIFLUX_ALLOWED_HOSTS`.
 - Automatic dedupe uses `MINIFLUX_BASE_URL` and `MINIFLUX_API_TOKEN` from the server `.env`; never expose or log that token.
+- Signed Miniflux dedupe webhooks use `MINIFLUX_WEBHOOK_SECRET`; never expose or log the secret or webhook signature.
 - Optional semantic dedupe uses OpenRouter only when `DEDUPE_LLM_ENABLED=true` and `OPENROUTER_API_KEY` is configured server-side. Do not expose the OpenRouter key to the browser.
 - Failed-feed notifications use the same server-side Miniflux token plus `NTFY_ACCESS_TOKEN`; never expose or log either token.
 - Do not log API tokens.
@@ -84,8 +85,9 @@ The browser holds the Miniflux API token in session storage only. The Express se
 - The VPS should keep only `/opt/stacks/flux-filters/docker-compose.yaml` and `/opt/stacks/flux-filters/.env`; do not build from source there once image deployment is working.
 - Runtime secrets belong in the VPS `.env` file, not in GitHub workflow files or the Docker image.
 - Automatic dedupe is opt-in with `DEDUPE_AUTOMATION_ENABLED=true`, runs every `DEDUPE_INTERVAL_MINUTES`, checks unread entries from `DEDUPE_WINDOW_DAYS`, and stores its audit log at `DEDUPE_AUDIT_PATH`.
+- Miniflux-triggered dedupe is opt-in with `DEDUPE_WEBHOOK_ENABLED=true`; configure Miniflux to send signed `new_entries` webhooks to `/api/miniflux/webhook/dedupe` using the same `MINIFLUX_WEBHOOK_SECRET`.
 - Deterministic dedupe scoring can be tuned with `DEDUPE_CONFIG_PATH`; OpenRouter semantic matching should only receive titles, feed names, timestamps, and local scores.
-- Failed-feed ntfy notifications are opt-in with `FAILED_FEEDS_NOTIFICATION_ENABLED=true`, publish to `NTFY_TOPIC`, and store change-detection state at `FAILED_FEEDS_STATE_PATH`.
+- Failed-feed ntfy notifications are opt-in with `FAILED_FEEDS_NOTIFICATION_ENABLED=true`, publish to `NTFY_TOPIC`, run once per day using `FAILED_FEEDS_NOTIFICATION_TIME` and `FAILED_FEEDS_TIME_ZONE`, and store notification state at `FAILED_FEEDS_STATE_PATH`.
 - The Docker Compose files mount `flux-filters-data` at `/data` so the dedupe audit log and failed-feed notification state survive container restarts while the root filesystem remains read-only.
 
 ## Project constraints and rules
