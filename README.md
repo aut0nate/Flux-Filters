@@ -69,13 +69,16 @@ DEDUPE_LLM_CANDIDATE_MIN_SCORE=0.35
 DEDUPE_LLM_AUTO_CONFIDENCE=0.85
 DEDUPE_LLM_MAX_PAIRS=30
 DEDUPE_NTFY_NOTIFICATION_ENABLED=false
+DEDUPE_WEBHOOK_ENABLED=false
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_MODEL=google/gemma-4-26b-a4b-it
 OPENROUTER_API_KEY=
 MINIFLUX_BASE_URL=
 MINIFLUX_API_TOKEN=
+MINIFLUX_WEBHOOK_SECRET=
 FAILED_FEEDS_NOTIFICATION_ENABLED=false
-FAILED_FEEDS_INTERVAL_MINUTES=60
+FAILED_FEEDS_NOTIFICATION_TIME=07:00
+FAILED_FEEDS_TIME_ZONE=Europe/London
 FAILED_FEEDS_STATE_PATH=/data/failed-feeds-notification-state.json
 NTFY_BASE_URL=
 NTFY_TOPIC=miniflux
@@ -97,13 +100,16 @@ Environment notes:
 - `DEDUPE_LLM_AUTO_CONFIDENCE` - minimum OpenRouter confidence required before a semantic match is marked read.
 - `DEDUPE_LLM_MAX_PAIRS` - maximum number of candidate pairs sent to OpenRouter per dedupe run.
 - `DEDUPE_NTFY_NOTIFICATION_ENABLED` - set to `true` to send ntfy alerts listing articles that dedupe filtered by marking them read.
+- `DEDUPE_WEBHOOK_ENABLED` - set to `true` to let signed Miniflux `new_entries` webhooks trigger dedupe as soon as new articles are fetched.
 - `OPENROUTER_BASE_URL` - OpenRouter API base URL. The default is `https://openrouter.ai/api/v1`.
 - `OPENROUTER_MODEL` - OpenRouter model used for semantic title checks.
 - `OPENROUTER_API_KEY` - OpenRouter API key used only by the server. Keep this only in `.env` on the server.
 - `MINIFLUX_BASE_URL` - Miniflux server URL used by the automatic dedupe job.
 - `MINIFLUX_API_TOKEN` - Miniflux API token used by the automatic dedupe job. Keep this only in `.env` on the server.
+- `MINIFLUX_WEBHOOK_SECRET` - Miniflux webhook signing secret. Keep this only in `.env` on the server and set the same secret in Miniflux.
 - `FAILED_FEEDS_NOTIFICATION_ENABLED` - set to `true` to send ntfy alerts when Miniflux reports failed feeds.
-- `FAILED_FEEDS_INTERVAL_MINUTES` - how often failed feeds are checked. `60` is recommended.
+- `FAILED_FEEDS_NOTIFICATION_TIME` - local time for the daily failed-feed digest. The default is `07:00`.
+- `FAILED_FEEDS_TIME_ZONE` - IANA time zone used for the daily failed-feed digest. The default is `Europe/London`.
 - `FAILED_FEEDS_STATE_PATH` - where Flux Filters stores the last notified failed-feed state to avoid repeated alerts.
 - `NTFY_BASE_URL` - ntfy server URL used for server-side notifications.
 - `NTFY_TOPIC` - ntfy topic used for server-side notifications.
@@ -132,6 +138,19 @@ application code. For example:
   ]
 }
 ```
+
+### Miniflux Webhook Dedupe
+
+To run dedupe as soon as Miniflux fetches new articles, enable `DEDUPE_WEBHOOK_ENABLED=true`, set
+`MINIFLUX_WEBHOOK_SECRET` in the server `.env`, then configure Miniflux to send signed `new_entries`
+webhooks to:
+
+```text
+https://<your-flux-filters-host>/api/miniflux/webhook/dedupe
+```
+
+Keep `DEDUPE_AUTOMATION_ENABLED=true` as a fallback timer so duplicate cleanup still runs if a
+webhook delivery is missed.
 
 ## Test Locally
 
@@ -208,11 +227,14 @@ For most Docker-based deployments:
    DEDUPE_CONFIG_PATH=/data/dedupe-config.json
    DEDUPE_LLM_ENABLED=false
    DEDUPE_NTFY_NOTIFICATION_ENABLED=true
+   DEDUPE_WEBHOOK_ENABLED=true
    OPENROUTER_API_KEY=
    MINIFLUX_BASE_URL=https://<your-miniflux-host>
    MINIFLUX_API_TOKEN=<server-side-miniflux-token>
+   MINIFLUX_WEBHOOK_SECRET=<miniflux-webhook-secret>
    FAILED_FEEDS_NOTIFICATION_ENABLED=true
-   FAILED_FEEDS_INTERVAL_MINUTES=60
+   FAILED_FEEDS_NOTIFICATION_TIME=07:00
+   FAILED_FEEDS_TIME_ZONE=Europe/London
    FAILED_FEEDS_STATE_PATH=/data/failed-feeds-notification-state.json
    NTFY_BASE_URL=https://<your-ntfy-host>
    NTFY_TOPIC=miniflux
@@ -244,7 +266,8 @@ After deployment, verify:
 - The app can reach the expected Miniflux host.
 - Existing rules can still be fetched and saved.
 - The Filters page shows the last 7 days of articles Flux Filters marked read.
-- Failed-feed notifications publish to the configured ntfy topic when Miniflux reports a changed set of failed feeds.
+- Miniflux `new_entries` webhooks trigger duplicate cleanup after new articles are fetched.
+- Failed-feed notifications publish to the configured ntfy topic once per day at the configured local time.
 
 ## AI-Assisted Development
 

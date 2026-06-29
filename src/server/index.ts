@@ -1,4 +1,5 @@
 import "dotenv/config";
+import crypto from "node:crypto";
 import express from "express";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -24,6 +25,14 @@ import type {
   MinifluxFeed,
   MinifluxUser
 } from "../shared/miniflux.js";
+import {
+  assertValidTimeZone,
+  formatZonedDate,
+  formatZonedDateTime,
+  getNextDailyRunDate,
+  parseDailyScheduleTime,
+  type DailyScheduleTime
+} from "./scheduling.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -40,7 +49,18 @@ const minifluxRequestTimeoutMs =
 const openRouterRequestTimeoutMs =
   getPositiveIntegerEnv("OPENROUTER_REQUEST_TIMEOUT_SECONDS", 10, 1, 120) * 1000;
 
-app.use(express.json({ limit: "1mb" }));
+interface RawBodyRequest extends express.Request {
+  rawBody?: Buffer;
+}
+
+app.use(
+  express.json({
+    limit: "1mb",
+    verify: (request, _response, buffer) => {
+      (request as RawBodyRequest).rawBody = Buffer.from(buffer);
+    }
+  })
+);
 
 interface SessionPayload {
   serverUrl: string;
@@ -96,9 +116,17 @@ interface NtfyConfig {
 
 interface FailedFeedsJobConfig {
   enabled: boolean;
-  intervalMinutes: number;
+  schedule: DailyScheduleTime;
+  timeZone: string;
   session: SessionPayload | null;
   ntfy: NtfyConfig | null;
+}
+
+interface DedupeWebhookConfig {
+  enabled: boolean;
+  secret: string;
+  session: SessionPayload | null;
+  windowDays: number;
 }
 
 interface DedupeNotificationConfig {
@@ -109,6 +137,8 @@ interface DedupeNotificationConfig {
 interface FailedFeedNotificationState {
   signature: string;
   notifiedAt: string;
+  notifiedDate?: string;
+  failureCount?: number;
 }
 
 interface FailedFeedSummary {
@@ -316,6 +346,21 @@ function getNumberEnv(name: string, fallback: number, minimum: number, maximum: 
   return Math.min(Math.max(parsed, minimum), maximum);
 }
 
+function getDailyScheduleTimeEnv(name: string, fallback: string): DailyScheduleTime {
+  const rawValue = process.env[name]?.trim() || fallback;
+  const schedule = parseDailyScheduleTime(rawValue);
+
+  if (!schedule) {
+    throw new Error(`${name} must use 24-hour HH:MM format, for example 07:00.`);
+  }
+
+  return schedule;
+}
+
+function getTimeZoneEnv(name: string, fallback: string): string {
+  return assertValidTimeZone(process.env[name]?.trim() || fallback);
+}
+
 async function loadDedupeConfig(): Promise<DedupeRuntimeConfig> {
   let fileConfig: Partial<DedupeRuntimeConfig> = {};
 
@@ -447,9 +492,19 @@ function getNtfyConfig(): NtfyConfig | null {
 function getFailedFeedsJobConfig(): FailedFeedsJobConfig {
   return {
     enabled: process.env.FAILED_FEEDS_NOTIFICATION_ENABLED === "true",
-    intervalMinutes: getPositiveIntegerEnv("FAILED_FEEDS_INTERVAL_MINUTES", 60, 5, 1440),
+    schedule: getDailyScheduleTimeEnv("FAILED_FEEDS_NOTIFICATION_TIME", "07:00"),
+    timeZone: getTimeZoneEnv("FAILED_FEEDS_TIME_ZONE", "Europe/London"),
     session: getServerMinifluxSession(),
     ntfy: getNtfyConfig()
+  };
+}
+
+function getDedupeWebhookConfig(): DedupeWebhookConfig {
+  return {
+    enabled: process.env.DEDUPE_WEBHOOK_ENABLED === "true",
+    secret: process.env.MINIFLUX_WEBHOOK_SECRET?.trim() || "",
+    session: getServerMinifluxSession(),
+    windowDays: getPositiveIntegerEnv("DEDUPE_WINDOW_DAYS", 7, 1, 30)
   };
 }
 
@@ -800,6 +855,52 @@ async function runDedupeJob(
   return run;
 }
 
+let automaticDedupeRunning = false;
+let automaticDedupePending = false;
+
+function triggerAutomaticDedupeJob(
+  session: SessionPayload,
+  windowDays: number,
+  trigger: string
+): "started" | "queued" {
+  if (automaticDedupeRunning) {
+    automaticDedupePending = true;
+    return "queued";
+  }
+
+  automaticDedupeRunning = true;
+
+  void (async () => {
+    let nextTrigger = trigger;
+
+    try {
+      do {
+        automaticDedupePending = false;
+
+        try {
+          const run = await runDedupeJob(session, windowDays, "automatic");
+
+          if (run) {
+            console.log(
+              `Dedupe automation marked ${run.markedReadCount} duplicate entries as read after ${nextTrigger}.`
+            );
+          } else {
+            console.log(`Dedupe automation found no duplicates after ${nextTrigger}.`);
+          }
+        } catch (error) {
+          console.error(error instanceof Error ? error.message : "Dedupe automation failed.");
+        }
+
+        nextTrigger = "queued trigger";
+      } while (automaticDedupePending);
+    } finally {
+      automaticDedupeRunning = false;
+    }
+  })();
+
+  return "started";
+}
+
 function formatDedupeStage(stage: DedupeGroup["stage"]): string {
   return stage
     .split("-")
@@ -928,14 +1029,20 @@ async function readFailedFeedsNotificationState(): Promise<FailedFeedNotificatio
   }
 }
 
-async function writeFailedFeedsNotificationState(signature: string): Promise<void> {
+async function writeFailedFeedsNotificationState(
+  signature: string,
+  notifiedDate: string,
+  failureCount: number
+): Promise<void> {
   await fs.mkdir(path.dirname(failedFeedsStatePath), { recursive: true });
   await fs.writeFile(
     failedFeedsStatePath,
     JSON.stringify(
       {
         signature,
-        notifiedAt: new Date().toISOString()
+        notifiedAt: new Date().toISOString(),
+        notifiedDate,
+        failureCount
       },
       null,
       2
@@ -989,24 +1096,71 @@ async function publishFailedFeedsNotification(config: NtfyConfig, feeds: FailedF
 
 async function runFailedFeedsNotificationJob(
   session: SessionPayload,
-  ntfy: NtfyConfig
+  ntfy: NtfyConfig,
+  timeZone: string
 ): Promise<FailedFeedSummary[]> {
   const failedFeeds = await fetchFailedFeeds(session);
   const signature = createFailedFeedsSignature(failedFeeds);
   const state = await readFailedFeedsNotificationState();
+  const notifiedDate = formatZonedDate(new Date(), timeZone);
 
-  if (state?.signature === signature) {
+  if (state?.notifiedDate === notifiedDate) {
     return [];
   }
 
   if (failedFeeds.length === 0) {
-    await writeFailedFeedsNotificationState(signature);
+    await writeFailedFeedsNotificationState(signature, notifiedDate, 0);
     return [];
   }
 
   await publishFailedFeedsNotification(ntfy, failedFeeds);
-  await writeFailedFeedsNotificationState(signature);
+  await writeFailedFeedsNotificationState(signature, notifiedDate, failedFeeds.length);
   return failedFeeds;
+}
+
+function normaliseWebhookSignature(value: string): string | null {
+  const signature = value.trim().toLowerCase().replace(/^sha256=/, "");
+
+  if (!/^[a-f0-9]{64}$/.test(signature)) {
+    return null;
+  }
+
+  return signature;
+}
+
+function verifyMinifluxWebhookSignature(rawBody: Buffer, signature: string, secret: string): boolean {
+  const providedSignature = normaliseWebhookSignature(signature);
+
+  if (!providedSignature) {
+    return false;
+  }
+
+  const expectedSignature = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+  const providedBuffer = Buffer.from(providedSignature, "hex");
+  const expectedBuffer = Buffer.from(expectedSignature, "hex");
+
+  return (
+    providedBuffer.length === expectedBuffer.length &&
+    crypto.timingSafeEqual(providedBuffer, expectedBuffer)
+  );
+}
+
+function getWebhookEventType(request: express.Request): string {
+  const headerEventType = request.header("x-miniflux-event-type")?.trim();
+
+  if (headerEventType) {
+    return headerEventType;
+  }
+
+  const payload = request.body as { event_type?: unknown; event?: unknown; type?: unknown };
+  const bodyEventType = payload.event_type ?? payload.event ?? payload.type;
+
+  return typeof bodyEventType === "string" ? bodyEventType.trim() : "";
+}
+
+function getWebhookEntryCount(request: express.Request): number {
+  const payload = request.body as { entries?: unknown };
+  return Array.isArray(payload.entries) ? payload.entries.length : 0;
 }
 
 function filterPreviewForEntryIds(preview: DedupePreview, entryIds: number[]): DedupePreview {
@@ -1046,33 +1200,19 @@ function startDedupeScheduler() {
   }
 
   const intervalMs = config.intervalMinutes * 60 * 1000;
-  let running = false;
 
-  async function runScheduledJob() {
-    if (running || !config.session) {
-      return;
+  setTimeout(() => {
+    if (config.session) {
+      triggerAutomaticDedupeJob(config.session, config.windowDays, "startup");
     }
-
-    running = true;
-
-    try {
-      const run = await runDedupeJob(config.session, config.windowDays, "automatic");
-
-      if (run) {
-        console.log(`Dedupe automation marked ${run.markedReadCount} duplicate entries as read.`);
-      }
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : "Dedupe automation failed.");
-    } finally {
-      running = false;
-    }
-  }
-
+  }, 20_000);
   setInterval(() => {
-    void runScheduledJob();
+    if (config.session) {
+      triggerAutomaticDedupeJob(config.session, config.windowDays, "fallback timer");
+    }
   }, intervalMs);
   console.log(
-    `Dedupe automation enabled: every ${config.intervalMinutes} minutes, ${config.windowDays}-day window. First run in ${config.intervalMinutes} minutes.`
+    `Dedupe automation enabled: webhook-ready, fallback every ${config.intervalMinutes} minutes, ${config.windowDays}-day window. First fallback run in 20 seconds.`
   );
 }
 
@@ -1102,7 +1242,6 @@ function startFailedFeedsNotificationScheduler() {
     return;
   }
 
-  const intervalMs = config.intervalMinutes * 60 * 1000;
   let running = false;
 
   async function runScheduledJob() {
@@ -1113,7 +1252,11 @@ function startFailedFeedsNotificationScheduler() {
     running = true;
 
     try {
-      const notifiedFeeds = await runFailedFeedsNotificationJob(config.session, config.ntfy);
+      const notifiedFeeds = await runFailedFeedsNotificationJob(
+        config.session,
+        config.ntfy,
+        config.timeZone
+      );
 
       if (notifiedFeeds.length > 0) {
         console.log(`Failed-feed notifications sent for ${notifiedFeeds.length} feeds.`);
@@ -1125,13 +1268,27 @@ function startFailedFeedsNotificationScheduler() {
     }
   }
 
-  setTimeout(() => {
-    void runScheduledJob();
-  }, 20_000);
-  setInterval(() => {
-    void runScheduledJob();
-  }, intervalMs);
-  console.log(`Failed-feed notifications enabled: every ${config.intervalMinutes} minutes.`);
+  function scheduleNextRun() {
+    const now = new Date();
+    const nextRun = getNextDailyRunDate(now, config.schedule, config.timeZone);
+    const delayMs = Math.max(nextRun.getTime() - now.getTime(), 1_000);
+
+    setTimeout(() => {
+      void (async () => {
+        await runScheduledJob();
+        scheduleNextRun();
+      })();
+    }, delayMs);
+
+    console.log(
+      `Failed-feed notifications enabled: daily at ${config.schedule.label} ${config.timeZone}. Next run: ${formatZonedDateTime(
+        nextRun,
+        config.timeZone
+      )}.`
+    );
+  }
+
+  scheduleNextRun();
 }
 
 function sendError(response: express.Response, error: unknown) {
@@ -1143,6 +1300,59 @@ function sendError(response: express.Response, error: unknown) {
   const message = error instanceof Error ? error.message : "Unexpected error.";
   response.status(status).json({ error: message });
 }
+
+app.post("/api/miniflux/webhook/dedupe", (request, response) => {
+  try {
+    const config = getDedupeWebhookConfig();
+
+    if (!config.enabled) {
+      response.status(404).json({ error: "Dedupe webhook is not enabled." });
+      return;
+    }
+
+    if (!config.secret) {
+      response.status(503).json({ error: "Dedupe webhook secret is not configured." });
+      return;
+    }
+
+    if (!config.session) {
+      response.status(503).json({
+        error: "Dedupe webhook is enabled but MINIFLUX_BASE_URL or MINIFLUX_API_TOKEN is missing."
+      });
+      return;
+    }
+
+    const rawBody = (request as RawBodyRequest).rawBody;
+    const signature = request.header("x-miniflux-signature") || "";
+
+    if (!rawBody || !verifyMinifluxWebhookSignature(rawBody, signature, config.secret)) {
+      response.status(401).json({ error: "Invalid Miniflux webhook signature." });
+      return;
+    }
+
+    const eventType = getWebhookEventType(request);
+
+    if (eventType !== "new_entries") {
+      response.status(202).json({ status: "ignored", eventType });
+      return;
+    }
+
+    const entryCount = getWebhookEntryCount(request);
+    const triggerStatus = triggerAutomaticDedupeJob(
+      config.session,
+      config.windowDays,
+      `Miniflux webhook (${entryCount} new entries)`
+    );
+
+    response.status(202).json({
+      status: triggerStatus,
+      eventType,
+      entries: entryCount
+    });
+  } catch (error) {
+    sendError(response, error);
+  }
+});
 
 app.get("/api/health", (_request, response) => {
   response.json({ status: "ok" });
