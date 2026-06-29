@@ -85,6 +85,7 @@ The browser holds the Miniflux API token in session storage only. The Express se
 - The VPS should keep only `/opt/stacks/flux-filters/docker-compose.yaml` and `/opt/stacks/flux-filters/.env`; do not build from source there once image deployment is working.
 - Runtime secrets belong in the VPS `.env` file, not in GitHub workflow files or the Docker image.
 - Automatic dedupe is opt-in with `DEDUPE_AUTOMATION_ENABLED=true`, runs every `DEDUPE_INTERVAL_MINUTES`, checks unread entries from `DEDUPE_WINDOW_DAYS`, and stores its audit log at `DEDUPE_AUDIT_PATH`.
+- Background dedupe uses deterministic matching by default; set `DEDUPE_AUTOMATION_SEMANTIC_ENABLED=true` only when automatic jobs should use OpenRouter semantic matching.
 - Miniflux-triggered dedupe is opt-in with `DEDUPE_WEBHOOK_ENABLED=true`; configure Miniflux to send signed `new_entries` webhooks to `/api/miniflux/webhook/dedupe` using the same `MINIFLUX_WEBHOOK_SECRET`.
 - Deterministic dedupe scoring can be tuned with `DEDUPE_CONFIG_PATH`; OpenRouter semantic matching should only receive titles, feed names, timestamps, and local scores.
 - Failed-feed ntfy notifications are opt-in with `FAILED_FEEDS_NOTIFICATION_ENABLED=true`, publish to `NTFY_TOPIC`, run once per day using `FAILED_FEEDS_NOTIFICATION_TIME` and `FAILED_FEEDS_TIME_ZONE`, and store notification state at `FAILED_FEEDS_STATE_PATH`.

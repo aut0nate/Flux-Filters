@@ -70,6 +70,7 @@ DEDUPE_LLM_AUTO_CONFIDENCE=0.85
 DEDUPE_LLM_MAX_PAIRS=30
 DEDUPE_NTFY_NOTIFICATION_ENABLED=false
 DEDUPE_WEBHOOK_ENABLED=false
+DEDUPE_AUTOMATION_SEMANTIC_ENABLED=false
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_MODEL=google/gemma-4-26b-a4b-it
 OPENROUTER_API_KEY=
@@ -101,6 +102,7 @@ Environment notes:
 - `DEDUPE_LLM_MAX_PAIRS` - maximum number of candidate pairs sent to OpenRouter per dedupe run.
 - `DEDUPE_NTFY_NOTIFICATION_ENABLED` - set to `true` to send ntfy alerts listing articles that dedupe filtered by marking them read.
 - `DEDUPE_WEBHOOK_ENABLED` - set to `true` to let signed Miniflux `new_entries` webhooks trigger dedupe as soon as new articles are fetched.
+- `DEDUPE_AUTOMATION_SEMANTIC_ENABLED` - set to `true` only if automatic dedupe should use OpenRouter semantic matching. The default `false` keeps background jobs fast and deterministic.
 - `OPENROUTER_BASE_URL` - OpenRouter API base URL. The default is `https://openrouter.ai/api/v1`.
 - `OPENROUTER_MODEL` - OpenRouter model used for semantic title checks.
 - `OPENROUTER_API_KEY` - OpenRouter API key used only by the server. Keep this only in `.env` on the server.
@@ -151,6 +153,10 @@ https://<your-flux-filters-host>/api/miniflux/webhook/dedupe
 
 Keep `DEDUPE_AUTOMATION_ENABLED=true` as a fallback timer so duplicate cleanup still runs if a
 webhook delivery is missed.
+
+Background dedupe uses deterministic URL and title matching by default. Manual review can still use
+semantic matching in the UI, and automatic jobs can opt into it with
+`DEDUPE_AUTOMATION_SEMANTIC_ENABLED=true`.
 
 ## Test Locally
 
@@ -228,6 +234,7 @@ For most Docker-based deployments:
    DEDUPE_LLM_ENABLED=false
    DEDUPE_NTFY_NOTIFICATION_ENABLED=true
    DEDUPE_WEBHOOK_ENABLED=true
+   DEDUPE_AUTOMATION_SEMANTIC_ENABLED=false
    OPENROUTER_API_KEY=
    MINIFLUX_BASE_URL=https://<your-miniflux-host>
    MINIFLUX_API_TOKEN=<server-side-miniflux-token>
