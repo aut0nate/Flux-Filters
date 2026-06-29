@@ -80,6 +80,7 @@ interface DedupeJobConfig {
   enabled: boolean;
   intervalMinutes: number;
   windowDays: number;
+  includeSemantic: boolean;
   session: SessionPayload | null;
 }
 
@@ -127,6 +128,7 @@ interface DedupeWebhookConfig {
   secret: string;
   session: SessionPayload | null;
   windowDays: number;
+  includeSemantic: boolean;
 }
 
 interface DedupeNotificationConfig {
@@ -450,6 +452,7 @@ function getDedupeJobConfig(): DedupeJobConfig {
     enabled,
     intervalMinutes: getPositiveIntegerEnv("DEDUPE_INTERVAL_MINUTES", 30, 5, 1440),
     windowDays: getPositiveIntegerEnv("DEDUPE_WINDOW_DAYS", 7, 1, 30),
+    includeSemantic: process.env.DEDUPE_AUTOMATION_SEMANTIC_ENABLED === "true",
     session
   };
 }
@@ -504,7 +507,8 @@ function getDedupeWebhookConfig(): DedupeWebhookConfig {
     enabled: process.env.DEDUPE_WEBHOOK_ENABLED === "true",
     secret: process.env.MINIFLUX_WEBHOOK_SECRET?.trim() || "",
     session: getServerMinifluxSession(),
-    windowDays: getPositiveIntegerEnv("DEDUPE_WINDOW_DAYS", 7, 1, 30)
+    windowDays: getPositiveIntegerEnv("DEDUPE_WINDOW_DAYS", 7, 1, 30),
+    includeSemantic: process.env.DEDUPE_AUTOMATION_SEMANTIC_ENABLED === "true"
   };
 }
 
@@ -839,10 +843,13 @@ async function runDedupeJob(
   session: SessionPayload,
   windowDays: number,
   mode: DedupeAuditRun["mode"],
-  notificationConfig = getDedupeNotificationConfig()
+  notificationConfig = getDedupeNotificationConfig(),
+  options: { includeSemantic?: boolean } = {}
 ): Promise<DedupeAuditRun | null> {
   const entries = await fetchRecentEntriesForDedupe(session, windowDays);
-  const preview = await createServerDedupePreview(entries.entries, windowDays);
+  const preview = await createServerDedupePreview(entries.entries, windowDays, {
+    includeSemantic: options.includeSemantic ?? true
+  });
 
   if (preview.markReadEntryIds.length === 0) {
     return null;
@@ -861,6 +868,7 @@ let automaticDedupePending = false;
 function triggerAutomaticDedupeJob(
   session: SessionPayload,
   windowDays: number,
+  includeSemantic: boolean,
   trigger: string
 ): "started" | "queued" {
   if (automaticDedupeRunning) {
@@ -878,7 +886,9 @@ function triggerAutomaticDedupeJob(
         automaticDedupePending = false;
 
         try {
-          const run = await runDedupeJob(session, windowDays, "automatic");
+          const run = await runDedupeJob(session, windowDays, "automatic", undefined, {
+            includeSemantic
+          });
 
           if (run) {
             console.log(
@@ -1201,18 +1211,18 @@ function startDedupeScheduler() {
 
   const intervalMs = config.intervalMinutes * 60 * 1000;
 
-  setTimeout(() => {
-    if (config.session) {
-      triggerAutomaticDedupeJob(config.session, config.windowDays, "startup");
-    }
-  }, 20_000);
   setInterval(() => {
     if (config.session) {
-      triggerAutomaticDedupeJob(config.session, config.windowDays, "fallback timer");
+      triggerAutomaticDedupeJob(
+        config.session,
+        config.windowDays,
+        config.includeSemantic,
+        "fallback timer"
+      );
     }
   }, intervalMs);
   console.log(
-    `Dedupe automation enabled: webhook-ready, fallback every ${config.intervalMinutes} minutes, ${config.windowDays}-day window. First fallback run in 20 seconds.`
+    `Dedupe automation enabled: webhook-ready, fallback every ${config.intervalMinutes} minutes, ${config.windowDays}-day window, semantic matching ${config.includeSemantic ? "enabled" : "disabled"}.`
   );
 }
 
@@ -1341,6 +1351,7 @@ app.post("/api/miniflux/webhook/dedupe", (request, response) => {
     const triggerStatus = triggerAutomaticDedupeJob(
       config.session,
       config.windowDays,
+      config.includeSemantic,
       `Miniflux webhook (${entryCount} new entries)`
     );
 
